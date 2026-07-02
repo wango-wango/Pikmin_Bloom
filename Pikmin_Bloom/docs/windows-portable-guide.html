@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pikomin Windows 可攜版使用說明</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: oklch(97% 0.006 205);
+      --surface: oklch(99% 0.004 205);
+      --panel: oklch(94% 0.009 210);
+      --ink: oklch(23% 0.025 230);
+      --muted: oklch(48% 0.025 230);
+      --line: oklch(86% 0.012 215);
+      --accent: oklch(58% 0.16 205);
+      --accent-soft: oklch(91% 0.045 205);
+      --ok: oklch(55% 0.13 155);
+      --warn: oklch(66% 0.14 70);
+      --bad: oklch(58% 0.16 30);
+      --shadow: 0 18px 42px oklch(35% 0.03 230 / 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      line-height: 1.6;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    code, kbd {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: oklch(96% 0.008 220);
+      color: oklch(30% 0.06 230);
+      font-family: "Cascadia Mono", Consolas, monospace;
+      font-size: 0.92em;
+      padding: 0.12rem 0.34rem;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .side {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 28px 22px;
+      border-right: 1px solid var(--line);
+      background: oklch(95% 0.01 215);
+    }
+
+    .brand {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 30px;
+    }
+
+    .mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      background:
+        radial-gradient(circle at 63% 35%, oklch(82% 0.12 145) 0 8px, transparent 9px),
+        radial-gradient(circle at 40% 57%, oklch(76% 0.15 55) 0 7px, transparent 8px),
+        linear-gradient(135deg, oklch(63% 0.15 205), oklch(53% 0.12 245));
+      box-shadow: 0 10px 24px oklch(45% 0.08 230 / 0.18);
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 1.2rem;
+      line-height: 1.25;
+    }
+
+    .brand p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    nav {
+      display: grid;
+      gap: 4px;
+    }
+
+    nav a {
+      display: block;
+      border-radius: 7px;
+      color: var(--muted);
+      font-size: 0.94rem;
+      padding: 8px 10px;
+    }
+
+    nav a:hover {
+      background: var(--surface);
+      color: var(--ink);
+    }
+
+    main {
+      padding: 42px min(6vw, 72px) 72px;
+    }
+
+    .hero {
+      display: grid;
+      gap: 18px;
+      max-width: 920px;
+      margin-bottom: 34px;
+    }
+
+    .eyebrow {
+      margin: 0;
+      color: var(--accent);
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 2rem;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 0 0 12px;
+      font-size: 1.12rem;
+      line-height: 1.35;
+    }
+
+    p {
+      margin: 0 0 12px;
+      max-width: 68ch;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .summary div,
+    section,
+    .callout {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .summary div {
+      padding: 14px;
+    }
+
+    .summary strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .summary span {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    section {
+      max-width: 980px;
+      margin: 18px 0;
+      padding: 22px;
+      box-shadow: var(--shadow);
+    }
+
+    .steps {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .steps li {
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+    }
+
+    .num {
+      display: inline-grid;
+      width: 30px;
+      height: 30px;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--accent-soft);
+      color: oklch(38% 0.13 210);
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .callout {
+      padding: 14px 16px;
+      background: var(--panel);
+    }
+
+    .callout strong {
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    .ok {
+      color: var(--ok);
+    }
+
+    .warn {
+      color: var(--warn);
+    }
+
+    .bad {
+      color: var(--bad);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.95rem;
+    }
+
+    th, td {
+      padding: 11px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(110px, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .flow span {
+      min-height: 72px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      display: grid;
+      place-items: center;
+      padding: 10px;
+      text-align: center;
+      font-size: 0.92rem;
+      font-weight: 650;
+    }
+
+    footer {
+      max-width: 980px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      padding-top: 22px;
+    }
+
+    @media (max-width: 860px) {
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      .side {
+        position: static;
+        height: auto;
+      }
+
+      nav {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      main {
+        padding: 28px 18px 44px;
+      }
+
+      .summary,
+      .grid,
+      .flow {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="side">
+      <div class="brand">
+        <div class="mark" aria-hidden="true"></div>
+        <h1>Pikomin Windows 可攜版</h1>
+        <p>本地端操作說明</p>
+      </div>
+      <nav aria-label="頁面導覽">
+        <a href="#prepare">使用前準備</a>
+        <a href="#start">啟動與停止</a>
+        <a href="#use">基本操作</a>
+        <a href="#logs">Log 與狀態</a>
+        <a href="#troubleshooting">常見問題</a>
+        <a href="#handoff">交付檢查</a>
+      </nav>
+    </aside>
+
+    <main>
+      <div class="hero">
+        <p class="eyebrow">Portable guide</p>
+        <h2>不用安裝 Python 或 Node.js，解壓後即可在 Windows 本地端啟動 Pikomin。</h2>
+        <p>這份文件給使用者或測試者閱讀。照順序完成準備、啟動、停止與排錯，就能用瀏覽器控制已連線 iPhone 的模擬定位。</p>
+        <div class="summary" aria-label="重點摘要">
+          <div>
+            <strong>執行入口</strong>
+            <span>雙擊 <code>run.bat</code></span>
+          </div>
+          <div>
+            <strong>停止入口</strong>
+            <span>雙擊 <code>stop.bat</code></span>
+          </div>
+          <div>
+            <strong>本機網址</strong>
+            <span><code>http://localhost:5679</code></span>
+          </div>
+        </div>
+      </div>
+
+      <section id="prepare">
+        <h3>使用前準備</h3>
+        <div class="grid">
+          <div class="callout">
+            <strong class="ok">需要</strong>
+            <p>Windows 10/11、Apple Mobile Device Support、已信任此電腦的 iPhone、USB 連線或可用的裝置連線。</p>
+          </div>
+          <div class="callout">
+            <strong class="ok">不需要</strong>
+            <p>不需要另外安裝 Python、Node.js、npm、FastAPI 或 pymobiledevice3。可攜版已內建 runtime。</p>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>項目</th>
+              <th>說明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Apple 驅動</td>
+              <td>Windows 必須能辨識 iPhone。可安裝 iTunes 或 Apple Devices 相關元件。</td>
+            </tr>
+            <tr>
+              <td>手機狀態</td>
+              <td>保持 iPhone 解鎖，第一次連線時在手機上點選「信任此電腦」。</td>
+            </tr>
+            <tr>
+              <td>系統權限</td>
+              <td><code>run.bat</code> 會跳出系統管理員權限提示，用來啟動 iOS tunnel。</td>
+            </tr>
+            <tr>
+              <td>網路</td>
+              <td>地圖底圖需要連線讀取圖磚。沒有網路時功能仍可能可用，但地圖底圖會不完整。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="start">
+        <h3>啟動與停止</h3>
+        <ol class="steps">
+          <li>
+            <span class="num">1</span>
+            <span>解壓縮 <code>pikomin-win-portable.zip</code> 到一個固定資料夾，例如 <code>Documents\pikmin</code>。</span>
+          </li>
+          <li>
+            <span class="num">2</span>
+            <span>雙擊 <code>run.bat</code>。Windows 跳出權限提示時選擇「是」。</span>
+          </li>
+          <li>
+            <span class="num">3</span>
+            <span>瀏覽器會自動開啟 <code>http://localhost:5679</code>。如果尚未開啟，可手動輸入網址。</span>
+          </li>
+          <li>
+            <span class="num">4</span>
+            <span>使用完成後雙擊 <code>stop.bat</code>，停止背景中的 tunnel 與 app server。</span>
+          </li>
+        </ol>
+        <div class="flow" aria-label="啟動流程">
+          <span>解壓縮</span>
+          <span>run.bat</span>
+          <span>允許 UAC</span>
+          <span>瀏覽器開啟</span>
+          <span>stop.bat 停止</span>
+        </div>
+      </section>
+
+      <section id="use">
+        <h3>基本操作</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>功能</th>
+              <th>操作方式</th>
+              <th>注意事項</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>選擇裝置</td>
+              <td>開啟頁面後確認裝置清單，選取已連線 iPhone。</td>
+              <td>若清單空白，先確認手機解鎖、USB 連線與信任此電腦。</td>
+            </tr>
+            <tr>
+              <td>飛人模式</td>
+              <td>輸入座標或選擇已存地標，送出後立即切換定位。</td>
+              <td>需要 RSD tunnel 成功啟動。若失敗，看 <code>logs\tunneld.err.log</code>。</td>
+            </tr>
+            <tr>
+              <td>種花/路線</td>
+              <td>切到路線模式，依序點選路徑點，按「開始種花」後以 20 km/h 移動。</td>
+              <td>會從目前位置銜接到第一個路徑點。手機斷線或 tunnel 失效時會停止。</td>
+            </tr>
+            <tr>
+              <td>地標管理</td>
+              <td>儲存常用座標，之後可快速飛到該位置。</td>
+              <td>地標資料存放在可攜版資料夾內，搬移資料夾時會一起帶走。</td>
+            </tr>
+            <tr>
+              <td>明信片圖層</td>
+              <td>點右側工具列的明信片圖示，瀏覽目前地圖視窗內的 Pikmin Atlas 明信片。</td>
+              <td>上方可用圖示篩選全部、廟宇、變電箱、教堂與公園。右鍵明信片可複製座標或儲存為花點地標。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="logs">
+        <h3>Log 與狀態</h3>
+        <p>新版會在背景執行，不會預設顯示 <code>Pikomin Tunnel</code> 或 <code>Pikomin App</code> 視窗。若啟動或定位異常，先看 <code>logs</code> 資料夾。</p>
+        <table>
+          <thead>
+            <tr>
+              <th>檔案</th>
+              <th>用途</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>logs\backend.log</code></td>
+              <td>API 請求紀錄，例如裝置、定位、路線與明信片代理請求。</td>
+            </tr>
+            <tr>
+              <td><code>logs\backend.err.log</code></td>
+              <td>後端錯誤與定位失敗原因。</td>
+            </tr>
+            <tr>
+              <td><code>logs\tunneld.log</code></td>
+              <td>tunnel 標準輸出。</td>
+            </tr>
+            <tr>
+              <td><code>logs\tunneld.err.log</code></td>
+              <td>tunnel 權限、裝置連線與 RSD 錯誤。</td>
+            </tr>
+            <tr>
+              <td><code>logs\host_bridge.log</code></td>
+              <td>host bridge 定位推送紀錄。正常情況會看到 <code>LocationSimulation.set OK</code>。</td>
+            </tr>
+            <tr>
+              <td><code>logs\pids.json</code></td>
+              <td>背景程序 PID。<code>stop.bat</code> 會用它停止服務。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="troubleshooting">
+        <h3>常見問題</h3>
+        <div class="grid">
+          <div class="callout">
+            <strong class="bad">瀏覽器打不開 localhost</strong>
+            <p>先等 5 秒重新整理。仍失敗時查看 <code>logs\backend.err.log</code>，確認 app server 是否啟動。</p>
+          </div>
+          <div class="callout">
+            <strong class="bad">定位顯示 RSD tunnel not available</strong>
+            <p>代表 tunnel 沒成功。重新執行 <code>run.bat</code> 並允許系統管理員權限，確認手機解鎖。</p>
+          </div>
+          <div class="callout">
+            <strong class="warn">種花被拉回或很快停止</strong>
+            <p>確認手機未鎖定、tunnel 持續在線，並查看 <code>logs\host_bridge.log</code>。新版會從目前位置銜接第一個路徑點，若仍異常請重新執行 <code>run.bat</code>。</p>
+          </div>
+          <div class="callout">
+            <strong class="warn">Windows 防火牆提示</strong>
+            <p>允許本機 server 即可。Pikomin 使用 <code>localhost:5679</code> 提供本機網頁與 API。</p>
+          </div>
+          <div class="callout">
+            <strong class="warn">明信片沒有出現</strong>
+            <p>明信片需要網路連到 Pikmin Atlas 與圖片來源。請確認已開啟明信片圖層，移動或縮放地圖後等待資料更新。</p>
+          </div>
+          <div class="callout">
+            <strong class="warn">執行後想關掉</strong>
+            <p>不要只關瀏覽器。請雙擊 <code>stop.bat</code>，它會停止背景中的 tunnel 和 app server。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="handoff">
+        <h3>交付檢查</h3>
+        <ol class="steps">
+          <li>
+            <span class="num">1</span>
+            <span>確認壓縮包內有 <code>run.bat</code>、<code>stop.bat</code>、<code>backend</code>、<code>frontend</code>、<code>python</code>。</span>
+          </li>
+          <li>
+            <span class="num">2</span>
+            <span>第一次啟動時允許系統管理員權限。</span>
+          </li>
+          <li>
+            <span class="num">3</span>
+            <span>開啟頁面後確認裝置列表可讀取。</span>
+          </li>
+          <li>
+            <span class="num">4</span>
+            <span>完成測試後執行 <code>stop.bat</code>，確認背景服務已停止。</span>
+          </li>
+        </ol>
+      </section>
+
+      <footer>
+        <p>文件版本：Windows portable slim。此頁是單檔 HTML，可直接在本地端瀏覽器開啟。</p>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

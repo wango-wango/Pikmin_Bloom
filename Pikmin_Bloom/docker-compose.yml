@@ -1,0 +1,31 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5679:5679"
+    volumes:
+      - ./backend/app:/app/app
+    environment:
+      - TUNNELD_HOST=host.docker.internal
+      - TUNNELD_PORT=49151
+      - RSD_ADDRESS_OVERRIDE=host.docker.internal
+      - HOST_BRIDGE_URL=http://host.docker.internal:5680
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5678:5678"
+    environment:
+      - VITE_PROXY_API_TARGET=http://backend:5679
+      - VITE_PROXY_WS_TARGET=ws://backend:5679
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    restart: unless-stopped

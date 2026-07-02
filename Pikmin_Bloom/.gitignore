@@ -1,0 +1,24 @@
+# Python cache
+**/__pycache__/
+*.py[cod]
+
+# Frontend build output
+frontend/dist/
+frontend/node_modules/
+
+# Runtime data
+logs/
+.bridge-temp/
+backend/app/data/landmark-images/
+.gitconfig-codex
+release/npm-cache/
+release/python-cache/
+release/pikomin-win-portable/venv/
+release/pikomin-win-portable/python/
+release/pikomin-win-portable-old/
+release/pikomin-win-portable-venv-old/
+
+# OS files
+.DS_Store
+
+/open-design/

@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node .agents/skills/impeccable/scripts/load-context.mjs)",
+      "Bash(npx tsc *)",
+      "Bash(curl -s -o /Users/ggt/Documents/GitHub/susi/pikomin/frontend/public/marker-icon.png \"https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png\")",
+      "Bash(curl -s -o /Users/ggt/Documents/GitHub/susi/pikomin/frontend/public/marker-icon-2x.png \"https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png\")",
+      "Bash(curl -s -o /Users/ggt/Documents/GitHub/susi/pikomin/frontend/public/marker-shadow.png \"https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png\")",
+      "Bash(gh repo *)",
+      "WebFetch(domain:github.com)",
+      "Bash(npm install *)",
+      "Read(//Users/ggt/.claude/**)",
+      "Read(//Users/ggt/**)"
+    ]
+  }
+}

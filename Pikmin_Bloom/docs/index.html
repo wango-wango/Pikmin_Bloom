@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pikomin Markdown 文件瀏覽器</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f8;
+      --surface: #ffffff;
+      --surface-soft: #f2f3f5;
+      --surface-quiet: #ededf0;
+      --line: #d6d8dc;
+      --line-strong: #c0c4ca;
+      --text: #1f2328;
+      --muted: #555b63;
+      --code-bg: #111317;
+      --code-text: #f8f9fa;
+      --focus: #8a99a8;
+      font-family: "Noto Sans TC", "PingFang TC", "Noto Sans", "Segoe UI", "Microsoft JhengHei", sans-serif;
+      letter-spacing: 0;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    a, button, input { -webkit-tap-highlight-color: transparent; }
+
+    .page {
+      width: min(1220px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 42px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 20px;
+      align-items: end;
+      padding: 20px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(1.95rem, 3.4vw, 2.8rem);
+      font-weight: 700;
+      line-height: 1.12;
+    }
+
+    .hero p:last-child {
+      max-width: 72ch;
+      margin: 12px 0 0;
+      color: var(--muted);
+      line-height: 1.78;
+    }
+
+    .source-pill {
+      display: inline-flex;
+      min-height: 40px;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 16px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--surface);
+      color: var(--text);
+      font-weight: 700;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: border-color 0.2s ease;
+    }
+
+    .source-pill:hover {
+      border-color: var(--line-strong);
+      background: var(--surface-soft);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+      padding-top: 18px;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 16px;
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--surface);
+    }
+
+    .sidebar::before {
+      content: "文件清單";
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+
+    .search {
+      width: 100%;
+      min-height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--surface-quiet);
+      color: var(--text);
+      font: inherit;
+      padding: 8px 12px;
+    }
+
+    .search:focus-visible,
+    .source-pill:focus-visible,
+    .doc-button:focus-visible,
+    .code-copy:focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 2px;
+    }
+
+    .doc-list {
+      display: grid;
+      gap: 4px;
+      padding-top: 2px;
+    }
+
+    .doc-button {
+      min-height: 42px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+      text-align: left;
+      padding: 10px 10px;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    .doc-button:hover {
+      background: var(--surface-soft);
+      color: var(--text);
+    }
+
+    .doc-button[aria-current="true"] {
+      border-color: var(--line-strong);
+      background: var(--surface-soft);
+      color: var(--text);
+      font-weight: 800;
+    }
+
+    .viewer {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--surface);
+      overflow: hidden;
+    }
+
+    .viewer-head {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface-quiet);
+    }
+
+    .viewer-head h2 {
+      margin: 0;
+      font-size: 1.26rem;
+      line-height: 1.3;
+      font-weight: 700;
+    }
+
+    .viewer-head small {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .markdown-body {
+      max-width: 860px;
+      padding: 28px 30px 36px;
+      line-height: 1.78;
+    }
+
+    .markdown-body h1,
+    .markdown-body h2,
+    .markdown-body h3 {
+      line-height: 1.3;
+      margin: 1.35em 0 0.55em;
+      letter-spacing: 0;
+      font-weight: 700;
+    }
+
+    .markdown-body h1:first-child,
+    .markdown-body h2:first-child,
+    .markdown-body h3:first-child { margin-top: 0; }
+
+    .markdown-body h1 { font-size: clamp(1.75rem, 3vw, 2.35rem); }
+    .markdown-body h2 { font-size: 1.45rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+    .markdown-body h3 { font-size: 1.16rem; }
+
+    .markdown-body p {
+      margin: 0 0 1em;
+      color: var(--text);
+    }
+
+    .markdown-body ul, .markdown-body ol { margin: 0 0 1em; padding-left: 1.35rem; }
+    .markdown-body li + li { margin-top: 0.2em; }
+
+    .markdown-body a {
+      color: #20242a;
+      font-weight: 700;
+      text-underline-offset: 3px;
+      text-decoration-thickness: 1px;
+    }
+
+    .markdown-body strong { font-weight: 800; }
+
+    .markdown-body hr {
+      border: 0;
+      border-top: 1px solid var(--line);
+      margin: 1.6rem 0;
+    }
+
+    .markdown-body code {
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #e9ebef;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    .code-block {
+      position: relative;
+      margin: 1rem 0;
+      border-radius: 4px;
+      background: var(--code-bg);
+      color: var(--code-text);
+      overflow: hidden;
+    }
+
+    .code-copy {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      min-height: 32px;
+      border: 1px solid #3b4048;
+      border-radius: 4px;
+      background: #262a31;
+      color: var(--code-text);
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.82rem;
+      font-weight: 700;
+      padding: 4px 9px;
+    }
+
+    .code-copy:hover { background: #323742; }
+
+    .markdown-body pre {
+      margin: 0;
+      padding: 48px 14px 14px;
+      overflow-x: auto;
+      color: var(--code-text);
+      line-height: 1.6;
+    }
+
+    .markdown-body pre code { padding: 0; background: transparent; color: inherit; }
+
+    .markdown-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      overflow: hidden;
+    }
+
+    .markdown-body th,
+    .markdown-body td {
+      border: 1px solid var(--line);
+      padding: 9px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .markdown-body th { background: var(--surface-soft); }
+
+    .empty {
+      padding: 22px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    @media (max-width: 900px) {
+      .page {
+        width: min(100% - 20px, 680px);
+        padding-top: 16px;
+      }
+    }
+
+    @media (max-width: 820px) {
+      .hero,
+      .layout { grid-template-columns: 1fr; }
+      .hero { align-items: start; }
+      .sidebar { position: static; }
+      .viewer-head { align-items: flex-start; flex-direction: column; }
+      .source-pill { width: 100%; }
+      .markdown-body { padding: 22px 16px 30px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div><p class="eyebrow">Pikomin 文件瀏覽</p><h1>Markdown 文件瀏覽器</h1><p>這個頁面會直接渲染目前專案內的 Markdown 文件。內容已嵌入頁面，所以用 file:// 開啟也可以瀏覽。</p></div>
+      <a class="source-pill" href="../README.md">開啟 README 原檔</a>
+    </header>
+    <main class="layout">
+      <aside class="sidebar" aria-label="Markdown 文件清單"><input class="search" id="search" type="search" placeholder="搜尋文件或內容" aria-label="搜尋 Markdown 文件" /><nav class="doc-list" id="docList"></nav></aside>
+      <article class="viewer"><header class="viewer-head"><div><h2 id="docTitle">文件</h2><small id="docPath"></small></div><a class="source-pill" id="rawLink" href="#">原始檔案</a></header><div class="markdown-body" id="markdownBody"></div></article>
+    </main>
+  </div>
+<script id="embeddedDocs" type="application/json">[{"title": "README", "path": "../README.md", "content": "# iOS GPS 模擬器\n\n在電腦上透過網頁介面，即時控制 iPhone 的 GPS 位置。支援單點傳送與路徑自動行走。\n\n---\n\n## 安裝需求\n\n| 項目 | 版本 |\n|------|------|\n| Python | 3.11+ |\n| Node.js | 18+ |\n| pymobiledevice3 | 4.14+ |\n\n安裝 pymobiledevice3：\n\n```bash\npip install pymobiledevice3\n```\n\n---\n\n## iPhone 設定\n\n1. 前往「設定 → 隱私權與安全性 → 開發者模式」，開啟開發者模式\n2. 重新啟動 iPhone 並確認開啟\n3. 透過 USB 連接 iPhone 到電腦，點選「信任此電腦」\n\n---\n\n## 啟動方式（固定）\n\n### Docker Stack（推薦且固定使用）\n\n```bash\nchmod +x scripts/docker-stack.sh\n./scripts/docker-stack.sh restart\n```\n\n這個入口會先確認並啟動 host bridge，再重建/重啟 backend 與 frontend。\n請固定使用這條指令，避免 backend 已啟動但 host bridge 沒在跑，導致出現「定位橋接失敗」。\n\n開啟瀏覽器前往 http://localhost:5678\n\n### 除錯用（非預設）\n\n僅在除錯時才使用 `start.sh` 或手動三視窗啟動方式。\n\n---\n\n## 使用說明\n\nMarkdown 文件瀏覽器請開啟：[docs/index.html](docs/index.html)\n\n詳細改動請見：[docs/更新紀錄.md](docs/更新紀錄.md)\n\n### 單點模式\n\n在地圖上點擊任意位置，iPhone 的 GPS 會立即跳至該座標。\n\n### 路徑模式\n\n1. 切換至「路徑」頁籤\n2. 在地圖上依序點擊多個路徑點\n3. 點擊「開始種花」，iPhone 會以 20 km/h 沿路徑自動移動\n4. 若目前位置不在第一個路徑點，系統會先從目前位置銜接到路線起點\n5. 點擊「停止」可隨時中斷\n\n### 明信片圖層\n\n1. 點擊右側工具列的明信片圖示，開啟 Pikmin Atlas 明信片瀏覽\n2. 系統只載入目前地圖視窗範圍內的明信片，避免一次渲染過多圖片\n3. 上方篩選列可切換全部、廟宇、變電箱、教堂與公園類型\n4. 右鍵點擊明信片卡片可查看名稱與座標，也可複製資訊或儲存成花點地標\n\n### 停止模擬\n\n點擊「停止模擬」按鈕，iPhone 恢復顯示真實 GPS 位置。\n\n---\n\n## 常見問題\n\n**Q：出現 \"RSD tunnel not available\" 錯誤**\n請確認已執行 `sudo pymobiledevice3 lockdown start-tunnel` 並正確設定 `RSD_ADDRESS` / `RSD_PORT`。\n\n**Q：iPhone 未被偵測到**\n確認 USB 連接正常、已點選「信任此電腦」，並已開啟開發者模式。\n\n**Q：種花開始後被拉回或很快停止**\n確認 host bridge 與 tunneld 都在執行，手機不要鎖定。新版會保留最後座標並從目前位置銜接路線起點；若仍發生，先重啟 host bridge 與 backend。\n\n**Q：明信片圖片或列表沒有更新**\n明信片資料會透過本機後端代理 Pikmin Atlas API，並只載入目前地圖視窗範圍。請確認網路可連線，並嘗試移動或縮放地圖後重新開啟明信片圖層。\n\n**Q：開發測試不想連接實體裝置**\n設定環境變數 `MOCK_MODE=true` 啟動後端，系統會使用虛擬裝置回應所有操作。\n"}, {"title": "產品脈絡", "path": "../PRODUCT.md", "content": "# Product\n\n## Register\n\nproduct\n\n## Users\n個人使用者，以開發與測試情境為主，透過桌面瀏覽器快速控制已連線 iPhone 的模擬定位。使用時通常希望在短時間內完成選裝置、定位、飛行與路徑操作，不想被多餘層級或過長頁面干擾。\n\n## Product Purpose\n這個工具提供一個直接、可靠的 GPS 模擬控制台，讓使用者可以在地圖上單點跳轉位置、設定連續路徑，以及快速管理裝置連線與 RSD tunnel 設定。成功標準是操作路徑短、狀態清楚、常用功能可在同一視野內完成，不需要頻繁捲動找控制項。\n\n## Brand Personality\n輕量、俐落、可信任。介面應該像個順手的個人工具，而不是厚重的企業後台。情緒目標是讓人覺得專注、流暢、沒有負擔。\n\n## Anti-references\n不要太像企業後台，不要堆滿制式卡片與過度正式的管理介面感。不要過度裝飾、不要太花，也不要把功能拉得太長，讓主要操作藏在頁面下方。\n\n## Design Principles\n1. 常用操作優先進入首屏，避免為了開始主要任務而上下捲動。\n2. 地圖是主舞台，控制面板應該輔助決策，不應壓過操作核心。\n3. 狀態必須一眼可讀，裝置、定位、路徑進度要用簡潔層級呈現。\n4. 介面要像個熟悉的工具，而不是模板化的企業管理系統。\n5. 減少次要功能與重複操作，讓每個控制項都有明確存在理由。\n\n## Accessibility & Inclusion\n維持清楚對比、可辨識按鈕狀態與簡潔文案。避免依賴裝飾性動效傳遞資訊，讓主要操作在桌面尺寸下可穩定使用，並保留基本鍵盤輸入流程。\n"}, {"title": "功能介紹", "path": "./features.md", "content": "# iOS GPS 模擬器 — 功能介紹\n\n## 這是什麼工具？\n\n這是一個讓你透過電腦網頁，控制 iPhone GPS 位置的工具。\n\n把 iPhone 用 USB 接上電腦，打開瀏覽器，就可以讓 iPhone 顯示任意地點的 GPS 座標。常見用途是在 Pokemon Go 等需要移動的遊戲中，讓角色移動到你想去的地方。\n\n---\n\n## 功能一覽\n\n### 裝置連線\n打開網頁後，左側會自動顯示目前插著的 iPhone。如果沒有偵測到，會提示你接上 USB。\n\n### 飛行到指定位置\n輸入一組座標，iPhone 的 GPS 位置會立刻跳到那個地點。適合快速移動到遠處。\n\n### 種花模式\n設定多個路徑點，讓 iPhone GPS 自動沿著路徑移動。目前預設以 20 km/h 推送座標，也可以開啟循環模式讓它一直跑。開始時會從目前最後定位座標銜接到第一個路徑點，降低突然跳回起點造成拉回的機率。\n\n### 最佳路線\n路徑模式下加入至少 3 個花點後，可以按「最佳路線」自動重新排列節點。系統會走遍所有路徑點，最後從終點回到起點，並避免同一段路線走完後又反方向走回去。產生後會重新編號節點、畫出綠色循環線，並顯示循環總距離。\n\n### 明信片瀏覽\n開啟右側工具列的明信片圖層後，系統會透過本機後端代理 Pikmin Atlas API 載入目前地圖視窗範圍內的明信片。明信片以圖片卡片顯示，右鍵可查看名稱與座標，並可複製資訊或儲存為花點地標。\n\n上方篩選列提供全部、廟宇、變電箱、教堂與公園類型。預設顯示全部；在全部狀態下點選單一類型會切換為只顯示該類，之後可再多選其他類型。\n\n### 重設 GPS\n按一下就能停止模擬，iPhone 恢復顯示真實位置。\n\n---\n\n## 使用前的準備\n\n1. iPhone 開啟「開發者模式」：設定 → 隱私權與安全性 → 開發者模式 → 開啟\n2. 用 USB 連接 iPhone 到電腦，手機上點「信任此電腦」\n3. 建議關閉 iPhone 自動鎖定，避免 tunnel 斷線\n\n---\n\n## 限制說明\n\n- 必須用 USB 連接，不支援 Wi-Fi\n- 後端程式必須跑在電腦上，無法放到 Docker 或手機裡執行\n- 拔掉 USB 後 GPS 模擬自動停止\n- 種花模式依賴 tunnel 與 host bridge 穩定連線；手機鎖定、斷線或 bridge 未啟動時會停止或失敗\n- 明信片圖層需要網路連線讀取 Pikmin Atlas 與圖片資源；資料會快取短時間以降低重複請求\n"}, {"title": "簡易手冊", "path": "./使用手冊_簡易版.md", "content": "# Pikomin 使用手冊（超簡單版）\n\n這份手冊是給第一次用也看得懂的人。\n\n## 兩個終端機視窗各做什麼\n\n- 右邊視窗：跑 `tunneld`（手機連線通道）\n- 左邊視窗：跑 `./start.sh`（後端 + 前端）\n\n簡單記法：\n- 右邊管連線\n- 左邊管畫面\n\n## 開始前準備\n\n1. iPhone 與電腦在同一個 Wi-Fi\n2. iPhone 解鎖、螢幕保持亮著\n3. 手機已信任這台電腦（以前連過通常就可以）\n\n## 正確啟動流程（照順序）\n\n### Step 1：右邊視窗先開通道\n\n```bash\nsudo $HOME/.pyenv/versions/3.13.13/bin/python -m pymobiledevice3 remote tunneld --protocol tcp\n```\n\n看到持續輸出是正常，先不要關這個視窗。\n\n### Step 2：左邊視窗開系統\n\n```bash\ncd /Users/ggt/Documents/GitHub/susi/pikomin\nPYTHON_BIN=\"$HOME/.pyenv/versions/3.13.13/bin/python\" ./start.sh\n```\n\n看到 `All services are running.` 就表示啟動成功。\n\n## 怎麼開始種花模式\n\n1. 開啟 `http://localhost:5678`\n2. 選擇裝置\n3. 點地圖加入路徑點（至少 2 個）\n4. 如果有 3 個以上路徑點，可以先按「最佳路線」讓系統重新排序\n5. 按「開始種花」\n\n藍點會沿著路線移動。目前固定速度是 `20 km/h`。如果手機目前位置不在第一個路徑點上，系統會先從目前位置接到第一個路徑點，再沿著路線走，不會一開始直接跳回起點。\n\n「最佳路線」會走遍所有路徑點，最後回到起點，並避免同一段路線走完後又反方向走回去。產生後會重新編號，並顯示循環總距離。\n\n## 如何刪除單一路徑點\n\n- 右側「路線資料」每一筆都有「移除」\n- 點哪一筆的「移除」，就只刪那一筆\n\n## 怎麼看明信片\n\n1. 點右側工具列第一顆明信片圖示\n2. 地圖會顯示目前畫面範圍內的明信片卡片\n3. 上方按鈕可以篩選全部、廟宇、變電箱、教堂與公園\n4. 右鍵點明信片，可看到名稱與座標\n5. 右鍵選單內可複製名稱與座標，也可儲存成花點地標\n\n如果只想看廟宇，先在「全部」狀態下點廟宇；如果要再加變電箱，再點變電箱。\n\n## 如果按開始但手機不動\n\n先看三件事：\n\n1. 右邊 `tunneld` 視窗是不是還開著\n2. 手機有沒有鎖屏\n3. 頁面有沒有跳錯誤訊息（toast）\n\n快速檢查：\n\n```bash\ncurl -sS http://127.0.0.1:49151\n```\n\n如果回 `{}`，代表目前沒有抓到可用的手機 tunnel。\n\n## 如果種花被拉回或很快停止\n\n- 先確認速度顯示為 `小跑步 20 km/h`\n- 路徑點不要太密或太短，太短的路線會很快跑完並停止\n- 若仍然被拉回，重啟左邊系統與 host bridge，讓定位連線重新建立\n- Windows 開發環境可執行 `scripts/start_windows_dev_bridge.ps1` 重新啟動橋接服務\n\n## 要重啟哪個視窗\n\n- 改前端畫面：重啟左邊\n- 種花不動：先看右邊，通常再重啟左邊\n- 右邊出現 tunnel 錯誤：重啟右邊 `tunneld`\n\n最保險順序：\n\n1. 關左邊（Ctrl+C）\n2. 右邊保持開啟\n3. 左邊重新執行 `./start.sh`\n\n## 關閉系統\n\n- 左邊按 `Ctrl + C`（停止後端與前端）\n- 右邊按 `Ctrl + C`（停止 tunneld）\n\n## 一句話版\n\n先開右邊連線，再開左邊系統；右邊別關、手機別鎖，種花就會動。\n"}, {"title": "技術與功能介紹", "path": "./技術與功能介紹.md", "content": "# Pikomin 技術與功能介紹\n\n## 專案在做什麼\n\nPikomin 是一個 iOS GPS 模擬工具，主要用途是：\n\n- 在地圖上設定定位點\n- 規劃一段路線（多個路徑點）\n- 讓手機沿著這段路徑自動移動（種花模式）\n- 瀏覽目前地圖視窗內的 Pikmin Atlas 明信片，並快速儲存成地標\n\n它適合用在需要測試定位功能的情境，例如：\n\n- 地圖 App 測試\n- 到點觸發流程測試\n- 路線移動邏輯驗證\n\n---\n\n## 系統架構（簡單版）\n\n整體由三部分組成：\n\n1. 前端（Web UI）\n2. 後端 API（控制與路徑計算）\n3. iPhone 連線通道（tunneld + pymobiledevice3）\n\n流程大致是：\n\n1. 使用者在前端點地圖加入路徑點\n2. 前端呼叫後端 `/api/route/start`\n3. 後端路徑引擎計算每一步位置\n4. 後端透過 host bridge / `pymobiledevice3` 送定位到 iPhone\n5. 前端透過 WebSocket / 狀態更新顯示藍點進度\n\n明信片圖層另外走一條資料流：\n\n1. 前端取得 Leaflet 目前地圖視窗 bounds\n2. 前端計算視窗中心與半徑，呼叫本機 `/api/postcards/nearby`\n3. 後端代理 Pikmin Atlas `POST /api/postcards/nearby`\n4. 後端標準化欄位並快取短時間\n5. 前端再依目前視窗 bounds 篩選後渲染圖片卡片\n\n---\n\n## 使用技術\n\n### 前端\n\n- React + TypeScript\n- Vite\n- Leaflet（地圖顯示與路徑繪製）\n- WebSocket（即時狀態）\n\n### 後端\n\n- Python\n- FastAPI\n- Uvicorn\n- asyncio（路徑迴圈、非同步任務）\n\n### 裝置連線與定位\n\n- `pymobiledevice3`\n- `tunneld`（iOS 17+ / 18+ 的連線方式）\n- TCP tunnel（iOS 18.2+ 建議）\n\n---\n\n## 核心功能\n\n### 1) 裝置偵測與選擇\n\n- 顯示目前可用 iPhone\n- 選擇控制目標裝置\n\n### 2) 單點定位\n\n- 點地圖後可直接把手機定位移到該點\n\n### 3) 路徑模式（種花模式）\n\n- 在地圖上連續加入多個路徑點\n- 可用最佳路線自動重新排序節點，產生走遍所有點並回到起點的循環路線\n- 最佳路線會避免同一段路線走完後又反方向走回去\n- 一鍵開始自動移動\n- 可暫停 / 繼續 / 停止\n- 目前固定以 20 km/h 移動\n- 可循環播放路線\n- 若目前位置距離第一個路徑點超過 1 公尺，後端會先把目前位置插入路線開頭，再銜接到第一個路徑點\n\n### 4) 路徑資料管理\n\n- 右側面板顯示路徑點列表\n- 支援單筆移除與清除全部\n\n### 5) 明信片圖層\n\n- 右側工具列可開啟或關閉明信片瀏覽模式\n- 開啟後會收起左側操作面板，讓地圖視野保留給明信片卡片\n- 明信片只載入目前地圖視窗附近資料，再依 bounds 篩選渲染，避免一次掛上整個城市圖片\n- 上方篩選列支援全部、廟宇、變電箱、教堂與公園，可單選或複選\n- 右鍵明信片可查看名稱與座標，並用 icon 複製資訊或儲存成花點地標\n\n### 6) 即時狀態回饋\n\n- 顯示目前進度（百分比）\n- 顯示目前座標位置\n- 連線異常時可提示錯誤\n\n---\n\n## 目前運作特性（重要）\n\n- 種花模式是「電腦主控」：\n  - 路徑計算與座標推送在電腦端後端執行\n  - 手機端被動接收定位\n  - 路線停止或自然完成後，後端會保留最後座標給狀態 API，避免前端回到舊定位\n- 座標推送優先使用持久 `LocationSimulation` 連線，避免每次定位都重開 CLI 造成延遲\n- 明信片資料透過本機後端代理外部 API，避免前端直接碰跨網域限制，也方便快取與欄位標準化\n- 因此執行中需要：\n  - 後端持續在線\n  - tunnel 連線穩定\n  - 手機保持可連線狀態\n  - 明信片瀏覽時網路可連到 Pikmin Atlas 與圖片來源\n\n---\n\n## 啟動需求（建議）\n\n- Python 3.13（給 iOS 18.2+ TCP tunnel）\n- `pymobiledevice3`\n- Node.js + pnpm/npm（前端）\n\n建議啟動方式：\n\n1. 先啟 `tunneld`（TCP）\n2. 再啟後端與前端（`./start.sh`）\n\n---\n\n## 常見問題\n\n### 問：畫面在跑，但手機不動？\n\n通常是 tunnel 或裝置連線層問題，不是 UI 問題。  \n可先檢查 `http://127.0.0.1:49151` 是否有有效 tunnel 資料。\n\n### 問：藍點不順或有拉扯？\n\n通常是 tunnel / host bridge 推送延遲、手機鎖定，或路線起點與目前位置差太遠造成。新版會自動從目前位置銜接第一個路徑點，並保留最後座標；若仍發生，先重啟 host bridge 與 backend。\n"}, {"title": "指令整理", "path": "./commands.md", "content": "# iOS GPS 模擬器 — 啟動指令（固定）\n\n## 固定啟動方式\n\n```bash\ncd /Users/ggt/Documents/GitHub/susi/pikomin\n./scripts/docker-stack.sh restart\n```\n\n這是唯一建議的日常啟動方式，會先啟動 host bridge，再重啟 backend/frontend，避免「定位橋接失敗」。\n\n開啟瀏覽器：`http://localhost:5678`\n\n## 狀態與日誌\n\n```bash\n./scripts/docker-stack.sh status\n./scripts/docker-stack.sh logs\n```\n\n## 停止\n\n```bash\n./scripts/docker-stack.sh down\n```\n\n## 常用 API 測試\n\n```bash\ncurl -s http://localhost:5679/api/status\ncurl -s http://localhost:5679/api/devices\ncurl -s http://localhost:5679/api/tunnel/status\n```\n"}, {"title": "更新紀錄", "path": "./更新紀錄.md", "content": "# 更新紀錄\n\n## 2026-06-04\n\n### 種花速度\n\n- 種花固定速度由 `15 km/h` 提升為 `20 km/h`。\n- 開始種花按鈕同步顯示 `20 km/h`，讓畫面與文件速度一致。\n\n---\n\n## 2026-05-30\n\n本次補充更新新增明信片瀏覽圖層，並整理右鍵資訊卡、類型篩選與 Pikmin Atlas API 代理。\n\n### 明信片圖層\n\n- 新增右側工具列明信片開關，開啟後會收起左側操作面板，讓地圖保留給明信片瀏覽。\n- 明信片資料改由後端代理 `https://pikmin-atlas.com/api/postcards/nearby`，前端只渲染目前地圖視窗範圍內的項目。\n- 後端新增 `POST /api/postcards/nearby`，標準化明信片名稱、座標、圖片、標籤與持有人數，並加入 90 秒短快取。\n- 明信片以固定卡片樣式顯示圖片與名稱，避免橫圖、直圖造成 marker 跑版。\n\n### 明信片篩選與操作\n\n- 畫面上方新增明信片類型篩選列，支援全部、廟宇、變電箱、教堂與公園。\n- 在全部狀態下點單一類型會切換為只顯示該類；非全部狀態下可複選多個類型。\n- 右鍵明信片會顯示資訊卡，包含名稱、座標、複製資訊與儲存為地標圖示按鈕。\n- 儲存地標預設新增為花點，方便後續從地標功能快速飛到該位置。\n\n### 驗證\n\n- 前端型別檢查：`tsc --noEmit`，通過。\n- 後端 Python 編譯檢查：`py_compile`，通過。\n- 本地 `POST /api/postcards/nearby` 代理測試，通過。\n\n---\n\n本次更新聚焦在種花模式的定位穩定性，降低開始路線時被拉回、路線停止後畫面回到舊座標，以及 host bridge 推送延遲造成的問題。\n\n### 種花與路線穩定性\n\n- 種花速度固定回 `15 km/h`，避免過快速度造成座標跳點太大。\n- 路線啟動時會從目前最後定位座標銜接到第一個路徑點，不再一開始直接跳回第一個點。\n- 路線停止或自然完成後，後端保留最後一次成功推送的座標，避免前端輪詢狀態時顯示回舊位置。\n- 單點定位與重設 GPS 後會同步更新後端路線狀態，並透過 WebSocket 推送給前端。\n\n### Host Bridge\n\n- Host bridge 改為優先使用持久 `LocationSimulation` 連線設定 GPS，減少每次定位都重新啟動 CLI 的延遲。\n- 新增 Windows 開發用 `scripts/start_windows_dev_bridge.ps1`，可單獨啟動 host bridge 與 tunneld。\n\n### 介面\n\n- 路線工具列改為圖示化操作，支援儲存、匯入、讀取與清除路徑。\n- 路徑點支援右鍵操作，可顯示座標、設為起點、設為終點或移除節點。\n- 未偵測到裝置時新增說明按鈕，方便查看連線提示。\n\n### 驗證\n\n- 前端型別檢查：`tsc --noEmit`，通過。\n- 後端 route engine smoke check，通過。\n\n## 2026-05-29\n\n本次更新聚焦在地標管理、路徑操作、裝置辨識與啟動穩定性，讓桌面使用流程更清楚、可編輯，也更容易確認目前操作的裝置。\n\n### 地標管理\n\n- 新增地標編輯功能，可修改已儲存地標的名稱、經緯度與類型（花點 / 菇點）。\n- 地標管理彈窗改為桌面雙欄配置：左側新增 / 編輯表單，右側顯示已儲存地標清單。\n- 右側清單支援搜尋與類型篩選，並提供「編輯」與「刪除」操作。\n- 點選「編輯」後，地標資料會帶入左側表單，按鈕切換為「更新」，並可取消編輯。\n- 座標格式無效時，會顯示錯誤提示並清空座標欄位，方便重新輸入。\n- 後端新增 `PUT /api/landmarks/{landmark_id}`，用於更新地標資料。\n\n### 路徑操作\n\n- 路徑點支援拖曳調整，像錨點一樣可直接在地圖上改位置。\n- 拖曳路徑點後，路徑線會依新位置重畫。\n- 拖曳時會避免誤觸地圖點擊，防止多新增路徑點。\n- 移動方式新增 `跑步 (15 km/h)` 選項。\n\n### 裝置與連線\n\n- 裝置清單改為只顯示 USB 有線連接中的 iPhone。\n- 裝置下拉改顯示手機名稱與型號，避免只看到 UDID 難以辨識。\n- Host bridge 新增 USB 裝置查詢與裝置資訊查詢能力，供後端取得有線裝置與手機名稱。\n- Docker stack 啟動流程調整為使用固定 host bridge 管理方式，降低 bridge 沒有常駐造成定位橋接失敗的機率。\n\n### 介面與版本\n\n- 主面板「裝置與狀態」旁新增程式版本號顯示，目前版本來源為 `frontend/package.json`。\n- 前端目前顯示版本為 `v0.1.0`。\n\n### 驗證\n\n- 後端測試：`pytest`，30 passed。\n- 前端測試：`npm run test`，9 passed。\n- 前端建置：`npm run build`，通過。\n"}]</script>
+<script>
+const docs = JSON.parse(document.getElementById('embeddedDocs').textContent);
+const docList = document.getElementById('docList');
+const markdownBody = document.getElementById('markdownBody');
+const docTitle = document.getElementById('docTitle');
+const docPath = document.getElementById('docPath');
+const rawLink = document.getElementById('rawLink');
+const search = document.getElementById('search');
+function escapeHtml(value) { return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+function inlineMarkdown(value) { let html = escapeHtml(value); html = html.replace(/`([^`]+)`/g, '<code>$1</code>'); html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>'); html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>'); return html; }
+function renderTable(lines) { const rows = lines.map((line) => line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => inlineMarkdown(cell.trim()))); const header = rows[0] || []; const body = rows.slice(2); return '<table><thead><tr>' + header.map((cell) => '<th>' + cell + '</th>').join('') + '</tr></thead><tbody>' + body.map((row) => '<tr>' + row.map((cell) => '<td>' + cell + '</td>').join('') + '</tr>').join('') + '</tbody></table>'; }
+function renderMarkdown(markdown) { const lines = markdown.replace(/\r\n/g, '\n').split('\n'); const blocks = []; let paragraph = [], list = [], orderedList = [], code = [], table = []; let inCode = false; function flushParagraph() { if (paragraph.length) { blocks.push('<p>' + inlineMarkdown(paragraph.join(' ')) + '</p>'); paragraph = []; } } function flushList() { if (list.length) blocks.push('<ul>' + list.map((item) => '<li>' + inlineMarkdown(item) + '</li>').join('') + '</ul>'); if (orderedList.length) blocks.push('<ol>' + orderedList.map((item) => '<li>' + inlineMarkdown(item) + '</li>').join('') + '</ol>'); list = []; orderedList = []; } function flushTable() { if (table.length) blocks.push(renderTable(table)); table = []; } function renderCodeBlock(value) { return '<div class="code-block"><button class="code-copy" type="button">複製</button><pre><code>' + escapeHtml(value) + '</code></pre></div>'; } for (const line of lines) { if (line.startsWith('```')) { if (inCode) { blocks.push(renderCodeBlock(code.join('\n'))); code = []; inCode = false; } else { flushParagraph(); flushList(); flushTable(); inCode = true; } continue; } if (inCode) { code.push(line); continue; } if (/^\s*$/.test(line)) { flushParagraph(); flushList(); flushTable(); continue; } if (/^\|.+\|$/.test(line)) { flushParagraph(); flushList(); table.push(line); continue; } flushTable(); const heading = line.match(/^(#{1,3})\s+(.+)$/); if (heading) { flushParagraph(); flushList(); const level = heading[1].length; blocks.push('<h' + level + '>' + inlineMarkdown(heading[2]) + '</h' + level + '>'); continue; } if (/^---+$/.test(line.trim())) { flushParagraph(); flushList(); blocks.push('<hr />'); continue; } const unordered = line.match(/^[-*]\s+(.+)$/); if (unordered) { flushParagraph(); list.push(unordered[1]); continue; } const ordered = line.match(/^\d+\.\s+(.+)$/); if (ordered) { flushParagraph(); orderedList.push(ordered[1]); continue; } paragraph.push(line.trim()); } flushParagraph(); flushList(); flushTable(); return blocks.join('\n'); }
+function filteredDocs() { const keyword = search.value.trim().toLowerCase(); if (!keyword) return docs; return docs.filter((doc) => (doc.title + ' ' + doc.path + ' ' + doc.content).toLowerCase().includes(keyword)); }
+function renderList(activePath) { const visibleDocs = filteredDocs(); docList.innerHTML = visibleDocs.map((doc) => '<button class="doc-button" type="button" data-path="' + escapeHtml(doc.path) + '" aria-current="' + String(doc.path === activePath) + '">' + escapeHtml(doc.title) + '</button>').join('') || '<div class="empty">找不到符合的 Markdown 文件</div>'; docList.querySelectorAll('[data-path]').forEach((button) => button.addEventListener('click', () => activateDoc(button.dataset.path))); }
+function activateDoc(path) { const doc = docs.find((item) => item.path === path) || filteredDocs()[0] || docs[0]; if (!doc) return; docTitle.textContent = doc.title; docPath.textContent = doc.path; rawLink.href = doc.path; markdownBody.innerHTML = renderMarkdown(doc.content); renderList(doc.path); history.replaceState(null, '', '#' + encodeURIComponent(doc.path)); }
+markdownBody.addEventListener('click', async (event) => { const button = event.target.closest('.code-copy'); if (!button) return; const codeElement = button.closest('.code-block')?.querySelector('code'); if (!codeElement) return; const originalText = button.textContent; const text = codeElement.textContent; try { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); } else { const textarea = document.createElement('textarea'); textarea.value = text; textarea.setAttribute('readonly', ''); textarea.style.position = 'fixed'; textarea.style.opacity = '0'; document.body.appendChild(textarea); textarea.select(); document.execCommand('copy'); textarea.remove(); } button.textContent = '已複製'; window.setTimeout(() => { button.textContent = originalText; }, 1200); } catch { button.textContent = '複製失敗'; window.setTimeout(() => { button.textContent = originalText; }, 1200); } });
+search.addEventListener('input', () => activateDoc((filteredDocs()[0] || docs[0]).path));
+activateDoc(decodeURIComponent(location.hash.slice(1)) || docs[0].path);
+</script>
+</body>
+</html>
