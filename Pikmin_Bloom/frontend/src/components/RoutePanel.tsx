@@ -18,6 +18,7 @@ interface RoutePanelProps {
   onPauseRoute: () => Promise<void>
   onResumeRoute: () => Promise<void>
   onStopRoute: () => Promise<void>
+  onReverseRoute: () => Promise<void>
 }
 
 const JOG_SPEED = 20 / 3.6
@@ -41,6 +42,7 @@ export function RoutePanel({
   onPauseRoute,
   onResumeRoute,
   onStopRoute,
+  onReverseRoute,
 }: RoutePanelProps) {
   const [loop, setLoop] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -71,6 +73,7 @@ export function RoutePanel({
             onClick={() => onGenerateFlowerRoute('best')}
             disabled={!canGenerateFlowerRoute || locked}
             type="button"
+            style={{ width: '100%' }}
           >
             最佳路線
           </button>
@@ -134,6 +137,15 @@ export function RoutePanel({
                 繼續
               </button>
             )}
+            <button
+              className="secondary-button"
+              onClick={() => void withLoading(onReverseRoute)}
+              disabled={!hasGeneratedFlowerRoute || loading}
+              title={hasGeneratedFlowerRoute ? '點選以即時反轉調頭' : '必須先建立最佳路線才能反轉'}
+              type="button"
+            >
+              反轉
+            </button>
             <button className="accent-button" onClick={() => void withLoading(onStopRoute)} disabled={loading}>
               停止
             </button>

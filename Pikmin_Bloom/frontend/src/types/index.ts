@@ -9,6 +9,7 @@ export interface SavedLandmark {
   coordinate: GPSCoordinate
   landmarkType: 'flower' | 'mushroom' | 'postcard'
   region: string
+  tags: string[]
 }
 
 export interface PostcardLandmark {
@@ -63,6 +64,7 @@ export interface RouteStatus {
   state: SimulationState
   currentPosition: GPSCoordinate | null
   progress: number // 0.0 ~ 1.0
+  waypoints?: GPSCoordinate[]
 }
 
 export interface StatusUpdate {

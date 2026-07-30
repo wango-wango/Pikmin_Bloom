@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Church, Copy, Download, FileInput, FolderOpen, Layers3, Loader2, Lock, Mail, Map, MoreHorizontal, MousePointerClick, Pencil, Radar, Save, Search, Trees, Trash2, X, Zap } from 'lucide-react'
+import { Church, Compass, Copy, Download, FileInput, FolderOpen, Layers3, Loader2, Mail, Map, MoreHorizontal, Pencil, Radar, Save, Search, Trees, Trash2, X, Zap } from 'lucide-react'
 import './app.css'
 import { apiClient } from './api/client'
 import { DeviceStatus } from './components/DeviceStatus'
@@ -47,6 +47,8 @@ interface LandmarkFilePayload {
   exportedAt?: unknown
   coordinate?: unknown
   landmarkType?: unknown
+  region?: unknown
+  tags?: unknown
 }
 
 interface MapBounds {
@@ -260,6 +262,7 @@ function normalizeImportedLandmark(payload: LandmarkFilePayload): {
   coordinate: GPSCoordinate
   landmarkType: 'flower' | 'mushroom' | 'postcard'
   region: string
+  tags: string[]
 } {
   const name = typeof payload.name === 'string' ? payload.name.trim() : ''
   if (!name) {
@@ -271,11 +274,14 @@ function normalizeImportedLandmark(payload: LandmarkFilePayload): {
   if (payload.landmarkType !== 'flower' && payload.landmarkType !== 'mushroom' && payload.landmarkType !== 'postcard') {
     throw new Error('地標檔案格式錯誤，地標類型必須是 flower, mushroom 或 postcard')
   }
+  const rawTags = payload.tags
+  const tags = Array.isArray(rawTags) ? rawTags.map((t: unknown) => String(t).trim()).filter(Boolean) : []
   return {
     name,
     coordinate: payload.coordinate,
     landmarkType: payload.landmarkType,
-    region: typeof (payload as any).region === 'string' ? (payload as any).region : '未分類',
+    region: typeof payload.region === 'string' ? payload.region : '未分類',
+    tags,
   }
 }
 
@@ -340,7 +346,12 @@ export default function App() {
   const [toasts, setToasts] = useState<Toast[]>([])
   const [myPosition, setMyPosition] = useState<GPSCoordinate | null>(null)
   const [viewTarget, setViewTarget] = useState<GPSCoordinate | null>(null)
-  const [isMapClickArmed, setIsMapClickArmed] = useState(false)
+  const [zoom, setZoom] = useState(16)
+  const [singleModeOption, setSingleModeOption] = useState<'click' | 'coordinate'>('click')
+  const [coordinateInput, setCoordinateInput] = useState('')
+  const [isFilterOpen, setIsFilterOpen] = useState(false)
+  const [selectedSavedRouteId, setSelectedSavedRouteId] = useState('')
+  const [isMapClickArmed, setIsMapClickArmed] = useState(true) // Default to true so clicking works directly!
   const [destinationInput, setDestinationInput] = useState('')
   const [isLocating, setIsLocating] = useState(false)
   const [isFlying, setIsFlying] = useState(false)
@@ -364,11 +375,16 @@ export default function App() {
   const [landmarkFormTouched, setLandmarkFormTouched] = useState(false)
   const [landmarkSaving, setLandmarkSaving] = useState(false)
   const [selectedLandmarkId, setSelectedLandmarkId] = useState('')
+  const [landmarkTags, setLandmarkTags] = useState<string[]>([])
+  const [landmarkNewTag, setLandmarkNewTag] = useState('')
+  const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState(false)
+  const [advancedSearchTab, setAdvancedSearchTab] = useState<'region' | 'type' | 'tag'>('region')
+  const [selectedRegions, setSelectedRegions] = useState<string[]>([])
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([])
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [openLandmarkActionId, setOpenLandmarkActionId] = useState('')
-  const [openRouteActionId, setOpenRouteActionId] = useState('')
   const [savedRoutes, setSavedRoutes] = useState<SavedRoute[]>([])
   const [routeSaving, setRouteSaving] = useState(false)
-  const [isManageModalOpen, setIsManageModalOpen] = useState(false)
   const [isFlySettingsOpen, setIsFlySettingsOpen] = useState(false)
   const [isLandmarkManagerOpen, setIsLandmarkManagerOpen] = useState(false)
   const [isRouteLibraryOpen, setIsRouteLibraryOpen] = useState(false)
@@ -396,6 +412,8 @@ export default function App() {
   const [generatedRouteSummary, setGeneratedRouteSummary] = useState<GeneratedRouteSummary | null>(null)
   const [flyMode, setFlyMode] = useState<FlyMode>('coordinate')
   const [savedLandmarks, setSavedLandmarks] = useState<SavedLandmark[]>([])
+  const [isTempImportModalOpen, setIsTempImportModalOpen] = useState(false)
+  const [tempCoordsInput, setTempCoordsInput] = useState('')
   const showToastRef = useRef<(message: string) => void>(() => {})
   const routeImportInputRef = useRef<HTMLInputElement | null>(null)
   const landmarkImportInputRef = useRef<HTMLInputElement | null>(null)
@@ -416,6 +434,7 @@ export default function App() {
     pauseRoute,
     resumeRoute,
     stopRoute,
+    reverseRoute,
     syncCurrentPosition,
   } = useRoute(selectedDevice?.id ?? null, myPosition, handleRouteError)
   const isPlanting = routeStatus.state === 'moving'
@@ -424,7 +443,6 @@ export default function App() {
     if (!isPlanting) return
 
     setIsMapClickArmed(false)
-    setIsManageModalOpen(false)
     setIsLandmarkManagerOpen(false)
     setIsFlySettingsOpen(false)
     setIsRouteLibraryOpen(false)
@@ -508,6 +526,35 @@ export default function App() {
   useEffect(() => {
     showToastRef.current = showToast
   }, [showToast])
+
+  const handleFlyTo = useCallback(async (latitude: number, longitude: number) => {
+    if (!selectedDevice) return
+    try {
+      setViewTarget({ latitude, longitude })
+      await apiClient.setLocation({
+        latitude,
+        longitude,
+        deviceId: selectedDevice.id,
+      })
+      showToast('已設定虛擬定位')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : String(err))
+    }
+  }, [selectedDevice, showToast])
+
+  const handleCoordinateFly = useCallback(() => {
+    const parts = coordinateInput.split(/[\s,]+/).map(Number)
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+      const [lat, lng] = parts
+      if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        void handleFlyTo(lat, lng)
+      } else {
+        showToast('座標數值超出有效範圍 (緯度-90~90, 經度-180~180)')
+      }
+    } else {
+      showToast('格式錯誤，請使用「緯度,經度」，例如：25.0478,121.5170')
+    }
+  }, [coordinateInput, handleFlyTo, showToast])
 
   const handleScanPostcards = useCallback(async () => {
     if (!mapBounds) {
@@ -699,17 +746,7 @@ export default function App() {
   [addWaypoint, isMapClickArmed, isPlanting, mode, selectedDevice?.id, sendLocationFast, showToast, syncCurrentPosition],
 )
 
-  const handleToggleMapClickArmed = useCallback(() => {
-    if (isPlanting) {
-      showToast('種花中已鎖定點圖操作')
-      return
-    }
-    setIsMapClickArmed((prev) => {
-      const next = !prev
-      showToast(next ? '點圖生效中' : '點圖已鎖定')
-      return next
-    })
-  }, [isPlanting, showToast])
+
 
   const handleRemoveWaypoint = useCallback((index: number) => {
     setHasGeneratedFlowerRoute(false)
@@ -781,7 +818,11 @@ export default function App() {
       totalDistanceMeters: totalDistance,
     })
     showToast(variant === 'best' ? '已產生最佳路線' : '已快速產生循環綠線')
-  }, [replaceWaypoints, routeStatus.state, showToast, waypoints])
+
+    if (optimized.length > 0) {
+      void handleFlyTo(optimized[0].latitude, optimized[0].longitude)
+    }
+  }, [handleFlyTo, replaceWaypoints, routeStatus.state, showToast, waypoints])
 
   const handleStartRoute = useCallback(
     async (speed: number, loop: boolean) => {
@@ -865,21 +906,6 @@ export default function App() {
     )
   }, [selectedDevice, showToast, syncCurrentPosition, sendLocationFast])
 
-  const handleFlyTo = useCallback(async (latitude: number, longitude: number) => {
-    if (!selectedDevice) return
-    try {
-      setViewTarget({ latitude, longitude })
-      await apiClient.setLocation({
-        latitude,
-        longitude,
-        deviceId: selectedDevice.id,
-      })
-      showToast('已設定虛擬定位')
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : String(err))
-    }
-  }, [selectedDevice, showToast])
-
   const handleFlyToDestination = useCallback(async () => {
     const landmark = savedLandmarks.find((item) => item.name === destinationInput.trim())
     const coord = landmark?.coordinate ?? parseCoordinateInput(destinationInput)
@@ -928,14 +954,26 @@ export default function App() {
     try {
       setLandmarkSaving(true)
       if (editingLandmarkId) {
-        const updated = await apiClient.updateLandmark(editingLandmarkId, { name, coordinate: target, landmarkType: landmarkTypeInput, region: landmarkRegionInput })
+        const updated = await apiClient.updateLandmark(editingLandmarkId, {
+          name,
+          coordinate: target,
+          landmarkType: landmarkTypeInput,
+          region: landmarkRegionInput,
+          tags: landmarkTags,
+        })
         setSavedLandmarks((prev) => prev.map((landmark) => landmark.id === updated.id ? updated : landmark))
         if (selectedLandmarkId === updated.id) {
           setDestinationInput(updated.name)
         }
         showToast('地標已更新')
       } else {
-        const created = await apiClient.createLandmark({ name, coordinate: target, landmarkType: landmarkTypeInput, region: landmarkRegionInput })
+        const created = await apiClient.createLandmark({
+          name,
+          coordinate: target,
+          landmarkType: landmarkTypeInput,
+          region: landmarkRegionInput,
+          tags: landmarkTags,
+        })
         setSavedLandmarks((prev) => [created, ...prev])
         showToast('地標已儲存')
       }
@@ -943,6 +981,8 @@ export default function App() {
       setLandmarkCoordInput('')
       setLandmarkTypeInput('mushroom')
       setLandmarkRegionInput('未分類')
+      setLandmarkTags([])
+      setLandmarkNewTag('')
       setEditingLandmarkId('')
       setLandmarkFormTouched(false)
     } catch (err) {
@@ -950,7 +990,7 @@ export default function App() {
     } finally {
       setLandmarkSaving(false)
     }
-  }, [editingLandmarkId, landmarkCoordInput, landmarkNameInput, landmarkTypeInput, selectedLandmarkId, showToast])
+  }, [editingLandmarkId, landmarkCoordInput, landmarkNameInput, landmarkTypeInput, landmarkRegionInput, landmarkTags, selectedLandmarkId, showToast])
 
   const handleEditLandmark = useCallback((landmark: SavedLandmark) => {
     setEditingLandmarkId(landmark.id)
@@ -958,6 +998,8 @@ export default function App() {
     setLandmarkNameInput(landmark.name)
     setLandmarkCoordInput(formatCoordinate(landmark.coordinate))
     setLandmarkTypeInput(landmark.landmarkType)
+    setLandmarkRegionInput(landmark.region || '未分類')
+    setLandmarkTags(landmark.tags || [])
     setLandmarkFormTouched(false)
   }, [])
 
@@ -966,6 +1008,9 @@ export default function App() {
     setLandmarkNameInput('')
     setLandmarkCoordInput('')
     setLandmarkTypeInput('mushroom')
+    setLandmarkRegionInput('未分類')
+    setLandmarkTags([])
+    setLandmarkNewTag('')
     setLandmarkFormTouched(false)
   }, [])
 
@@ -990,6 +1035,8 @@ export default function App() {
       name: landmark.name,
       coordinate: landmark.coordinate,
       landmarkType: landmark.landmarkType,
+      region: landmark.region,
+      tags: landmark.tags,
     }
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -1042,6 +1089,7 @@ export default function App() {
         coordinate: postcard.coordinate,
         landmarkType: 'flower',
         region: postcard.city || postcard.country || '未分類',
+        tags: [],
       })
       setSavedLandmarks((prev) => {
         if (prev.some((landmark) => landmark.id === created.id)) return prev
@@ -1085,7 +1133,6 @@ export default function App() {
 
   const handleOpenRouteImportFromManager = useCallback(() => {
     setIsLandmarkManagerOpen(false)
-    setOpenRouteActionId('')
     setRouteImportMode('json')
     setRouteImportNameInput('')
     setRouteImportCoordinatesInput('')
@@ -1230,6 +1277,58 @@ export default function App() {
     }
   }, [routeImportCoordinatesInput, routeImportNameInput, routeImporting, showToast])
 
+  const handleConfirmTempImport = useCallback(() => {
+    const trimmed = tempCoordsInput.trim()
+    if (!trimmed) return
+
+    let parsed: GPSCoordinate[] = []
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsedJson = JSON.parse(trimmed)
+        if (Array.isArray(parsedJson) && parsedJson.every(item => typeof item === 'object' && item && 'latitude' in item && 'longitude' in item)) {
+          parsed = parsedJson.map((item: any) => ({
+            latitude: Number(item.latitude),
+            longitude: Number(item.longitude)
+          }))
+        } else {
+          throw new Error('JSON 格式錯誤，必須是包含 latitude 和 longitude 屬性的陣列')
+        }
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'JSON 解析失敗')
+        return
+      }
+    } else {
+      try {
+        parsed = parseRouteCoordinateLines(trimmed)
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : '座標解析失敗')
+        return
+      }
+    }
+
+    if (parsed.length > 0) {
+      replaceWaypoints(parsed)
+      setViewTarget({ ...parsed[0] })
+      setSelectedSavedRouteId('') // Clear selected saved route because this is a temp route
+      setIsTempImportModalOpen(false)
+      setTempCoordsInput('')
+      setHasGeneratedFlowerRoute(false)
+      setGeneratedRouteSummary(null)
+      showToast('暫存路徑匯入成功，地圖已聚焦至起點。您可以點擊「最佳路線」進行優化後開始移動！')
+    }
+  }, [tempCoordsInput, replaceWaypoints, showToast])
+
+  const handleReverseRoute = useCallback(async () => {
+    try {
+      await reverseRoute()
+      setHasGeneratedFlowerRoute(false)
+      setGeneratedRouteSummary(null)
+      showToast('路徑已反轉')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '反轉路徑失敗')
+    }
+  }, [reverseRoute, showToast])
+
   const currentPosition = routeStatus.currentPosition ?? myPosition
   const handleSwitchFlyMode = useCallback((nextMode: FlyMode) => {
     if (nextMode === flyMode) return
@@ -1246,12 +1345,20 @@ export default function App() {
   const isLandmarkFormValid = Boolean(trimmedLandmarkName && parsedLandmarkCoord)
   const normalizedSearchKeyword = landmarkSearchInput.trim().toLowerCase()
   const filteredLandmarks = savedLandmarks.filter((landmark) => {
-    const typeMatched = landmarkTypeFilter === 'all' || landmark.landmarkType === landmarkTypeFilter
-    if (!normalizedSearchKeyword) return typeMatched
+    const quickTypeMatched = landmarkTypeFilter === 'all' || landmark.landmarkType === (landmarkTypeFilter === 'postcard' ? 'postcard' : landmarkTypeFilter)
+    const typeMatched = selectedTypes.length === 0 || selectedTypes.includes(landmark.landmarkType)
+    const regionMatched = selectedRegions.length === 0 || selectedRegions.includes(landmark.region)
+    const tagMatched = selectedTags.length === 0 || (landmark.tags && landmark.tags.some(t => selectedTags.includes(t)))
+
+    if (!quickTypeMatched || !typeMatched || !regionMatched || !tagMatched) return false
+
+    if (!normalizedSearchKeyword) return true
     const nameMatched = landmark.name.toLowerCase().includes(normalizedSearchKeyword)
     const coordText = formatCoordinate(landmark.coordinate).toLowerCase()
     const coordMatched = coordText.includes(normalizedSearchKeyword)
-    return typeMatched && (nameMatched || coordMatched)
+    const tagsText = (landmark.tags || []).join(' ').toLowerCase()
+    const tagKeywordMatched = tagsText.includes(normalizedSearchKeyword)
+    return nameMatched || coordMatched || tagKeywordMatched
   })
   const landmarkPageCount = Math.max(1, Math.ceil(filteredLandmarks.length / LANDMARKS_PER_PAGE))
   const safeLandmarkPage = Math.min(landmarkPage, landmarkPageCount)
@@ -1261,12 +1368,20 @@ export default function App() {
   )
   const normalizedFlyLandmarkSearchKeyword = flyLandmarkSearchInput.trim().toLowerCase()
   const filteredFlyLandmarks = savedLandmarks.filter((landmark) => {
-    const typeMatched = flyLandmarkTypeFilter === 'all' || landmark.landmarkType === flyLandmarkTypeFilter
-    if (!normalizedFlyLandmarkSearchKeyword) return typeMatched
+    const quickTypeMatched = flyLandmarkTypeFilter === 'all' || landmark.landmarkType === (flyLandmarkTypeFilter === 'postcard' ? 'postcard' : flyLandmarkTypeFilter)
+    const typeMatched = selectedTypes.length === 0 || selectedTypes.includes(landmark.landmarkType)
+    const regionMatched = selectedRegions.length === 0 || selectedRegions.includes(landmark.region)
+    const tagMatched = selectedTags.length === 0 || (landmark.tags && landmark.tags.some(t => selectedTags.includes(t)))
+
+    if (!quickTypeMatched || !typeMatched || !regionMatched || !tagMatched) return false
+
+    if (!normalizedFlyLandmarkSearchKeyword) return true
     const nameMatched = landmark.name.toLowerCase().includes(normalizedFlyLandmarkSearchKeyword)
     const coordText = formatCoordinate(landmark.coordinate).toLowerCase()
     const coordMatched = coordText.includes(normalizedFlyLandmarkSearchKeyword)
-    return typeMatched && (nameMatched || coordMatched)
+    const tagsText = (landmark.tags || []).join(' ').toLowerCase()
+    const tagKeywordMatched = tagsText.includes(normalizedFlyLandmarkSearchKeyword)
+    return nameMatched || coordMatched || tagKeywordMatched
   })
   const flyLandmarkPageCount = Math.max(1, Math.ceil(filteredFlyLandmarks.length / LANDMARKS_PER_PAGE))
   const safeFlyLandmarkPage = Math.min(flyLandmarkPage, flyLandmarkPageCount)
@@ -1274,6 +1389,13 @@ export default function App() {
     (safeFlyLandmarkPage - 1) * LANDMARKS_PER_PAGE,
     safeFlyLandmarkPage * LANDMARKS_PER_PAGE,
   )
+  const filteredSidebarLandmarks = savedLandmarks.filter((landmark) => {
+    const typeMatched = selectedTypes.length === 0 || selectedTypes.includes(landmark.landmarkType)
+    const regionMatched = selectedRegions.length === 0 || selectedRegions.includes(landmark.region)
+    const tagMatched = selectedTags.length === 0 || (landmark.tags && landmark.tags.some(t => selectedTags.includes(t)))
+    return typeMatched && regionMatched && tagMatched
+  })
+  const activeFilterCount = selectedRegions.length + selectedTypes.length + selectedTags.length
   const normalizedRouteSearchKeyword = routeSearchInput.trim().toLowerCase()
   const filteredSavedRoutes = savedRoutes.filter((route) => {
     if (!normalizedRouteSearchKeyword) return true
@@ -1318,6 +1440,8 @@ export default function App() {
           onWaypointSetAsEnd={handleSetWaypointAsEnd}
           canEditWaypoints={canEditRouteWaypoints}
           showGeneratedFlowerRoute={hasGeneratedFlowerRoute}
+          zoom={zoom}
+          onZoomChange={setZoom}
         />
       </section>
 
@@ -1400,128 +1524,349 @@ export default function App() {
             </aside>
           ) : (
           <aside className="sidebar sidebar-floating">
-          <section className="panel panel-hero">
-            <div className="panel-heading">
-              <div>
-                <p className="panel-kicker">
-                  裝置與狀態
-                  <span className="version-badge">v{__APP_VERSION__}</span>
-                </p>
-                <h2>
-                  {currentPosition ? formatCoordinate(currentPosition) : '尚未設定定位座標'}
-                  {showDisconnectBanner && (
-                    <span className="disconnect-status">
-                      <span className="inline-alert">未偵測到裝置</span>
-                    </span>
-                  )}
-                </h2>
-              </div>
+            <div className="sidebar-top-controls">
+              <button
+                type="button"
+                className="locate-refresh-btn"
+                onClick={locateByBrowser}
+                disabled={isLocating}
+                title="重新取得定位"
+              >
+                {isLocating ? <Loader2 size={15} className="spinner" /> : <Compass size={15} />}
+                <span>重新取得目前位置</span>
+              </button>
             </div>
 
-            <DeviceStatus
-              devices={devices}
-              selectedDevice={selectedDevice}
-              onSelectDevice={selectDevice}
-              isLoading={isLoading}
-              error={error}
-            />
-
-            <LocationSearch
-              onLocationSelect={handleFlyTo}
-              disabled={isPlanting}
-            />
-
-            <label className="field">
-              <span>地圖圖層顯示</span>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px', fontSize: '13px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={mapLayerFilter.flower} onChange={(e) => setMapLayerFilter(prev => ({ ...prev, flower: e.target.checked }))} /> 花點
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={mapLayerFilter.mushroom} onChange={(e) => setMapLayerFilter(prev => ({ ...prev, mushroom: e.target.checked }))} /> 菇點
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={mapLayerFilter.postcard} onChange={(e) => setMapLayerFilter(prev => ({ ...prev, postcard: e.target.checked }))} /> 明信片
-                </label>
-              </div>
-              <select value={mapLayerFilter.region} onChange={(e) => setMapLayerFilter(prev => ({ ...prev, region: e.target.value }))}>
-                <option value="all">所有地區</option>
-                {Array.from(new Set(savedLandmarks.map(l => l.region).filter(Boolean))).map(r => (
-                  <option key={r} value={r}>{r}</option>
-                ))}
-              </select>
-            </label>
-
-            <label className="field">
-              <span>操作模式</span>
-              <div className="mode-control-row">
-                <select
-                  value={mode}
-                  onChange={(e) => {
-                    const newMode = e.target.value as Mode
-                    setMode(newMode)
-                    if (newMode === 'route' && waypoints.length > 0) {
-                      setViewTarget({ ...waypoints[0] })
-                    }
-                  }}
-                  aria-label="操作模式"
-                >
-                  <option value="single">單點定位</option>
-                  <option value="route">路徑模式</option>
-                </select>
-                <div className="mode-field-actions">
-                  <button
-                    className={`icon-button mode-action-button${isMapClickArmed ? ' is-active' : ''}`}
-                    onClick={handleToggleMapClickArmed}
-                    aria-label={isPlanting ? '種花中已鎖定點圖操作' : isMapClickArmed ? '關閉點圖生效' : '開啟點圖生效'}
-                    aria-pressed={isMapClickArmed}
-                    title={isPlanting ? '種花中已鎖定點圖操作' : isMapClickArmed ? '點圖生效中' : '點圖已鎖定'}
-                    disabled={isPlanting}
-                    type="button"
-                  >
-                    {isMapClickArmed ? (
-                      <MousePointerClick aria-hidden="true" size={16} strokeWidth={2.4} />
-                    ) : (
-                      <Lock aria-hidden="true" size={16} strokeWidth={2.4} />
+            <section className="panel panel-hero">
+              <div className="panel-heading">
+                <div>
+                  <p className="panel-kicker">
+                    裝置與狀態
+                    <span className="version-badge">v{__APP_VERSION__}</span>
+                  </p>
+                  <h2>
+                    {currentPosition ? formatCoordinate(currentPosition) : '尚未設定定位座標'}
+                    {showDisconnectBanner && (
+                      <span className="disconnect-status">
+                        <span className="inline-alert">未偵測到裝置</span>
+                      </span>
                     )}
-                  </button>
-                  <button
-                    className="icon-button mode-action-button"
-                    onClick={() => setIsManageModalOpen(true)}
-                    aria-label={isPlanting ? '種花中不可調整位置設定' : '位置設定'}
-                    title={isPlanting ? '種花中不可調整位置設定' : '位置設定'}
-                    disabled={isPlanting}
-                    type="button"
-                  >
-                    <Map aria-hidden="true" size={16} strokeWidth={2.4} />
-                  </button>
+                  </h2>
                 </div>
               </div>
-            </label>
-            <p className="helper-text" aria-live="polite">
-              {isPlanting
-                ? '種花中已鎖定點圖操作與位置設定，停止後可重新調整'
-                : !isMapClickArmed
-                ? '地圖點擊目前已鎖定，開啟「點圖生效」後才會寫入位置或新增路徑點'
-                : mode === 'single'
-                  ? '點擊地圖直接移動裝置定位'
-                : '點擊地圖加入路徑點'}
-            </p>
 
-            <div className="inline-route-panel">
-              <RoutePanel
-                waypoints={waypoints}
-                routeStatus={routeStatus}
-                hasGeneratedFlowerRoute={hasGeneratedFlowerRoute}
-                generatedRouteSummary={generatedRouteSummary}
-                onGenerateFlowerRoute={handleGenerateFlowerRoute}
-                onStartRoute={handleStartRoute}
-                onPauseRoute={handlePauseRoute}
-                onResumeRoute={handleResumeRoute}
-                onStopRoute={handleStopRoute}
+              <DeviceStatus
+                devices={devices}
+                selectedDevice={selectedDevice}
+                onSelectDevice={selectDevice}
+                isLoading={isLoading}
+                error={error}
               />
-            </div>
-          </section>
+
+              <label className="field">
+                <span>操作模式</span>
+                <div className="mode-control-row">
+                  <select
+                    value={mode}
+                    onChange={(e) => {
+                      const newMode = e.target.value as Mode
+                      setMode(newMode)
+                      if (newMode === 'route') {
+                        setIsMapClickArmed(true)
+                        if (waypoints.length > 0) {
+                          setViewTarget({ ...waypoints[0] })
+                        }
+                      } else {
+                        setIsMapClickArmed(true)
+                      }
+                    }}
+                    aria-label="操作模式"
+                  >
+                    <option value="single">單點定位</option>
+                    <option value="route">路徑模式</option>
+                  </select>
+                  <div className="mode-field-actions">
+                    <button
+                      className="icon-button mode-action-button"
+                      onClick={() => {
+                        setManagerTab('landmarks')
+                        setIsLandmarkManagerOpen(true)
+                      }}
+                      aria-label="地標 / 路徑管理"
+                      title="地標 / 路徑管理"
+                      disabled={isPlanting}
+                      type="button"
+                    >
+                      <FolderOpen aria-hidden="true" size={16} strokeWidth={2.4} />
+                    </button>
+                    <button
+                      className="icon-button mode-action-button"
+                      onClick={() => setIsFlySettingsOpen(true)}
+                      aria-label="飛行設定"
+                      title="飛行設定"
+                      disabled={isPlanting}
+                      type="button"
+                    >
+                      <Map aria-hidden="true" size={16} strokeWidth={2.4} />
+                    </button>
+                  </div>
+                </div>
+              </label>
+
+              {mode === 'single' && (
+                <div className="single-mode-selector">
+                  <div className="tab-group">
+                    <button
+                      type="button"
+                      className={`tab-btn${singleModeOption === 'click' ? ' is-active' : ''}`}
+                      onClick={() => {
+                        setSingleModeOption('click')
+                        setIsMapClickArmed(true)
+                      }}
+                    >
+                      單點定位
+                    </button>
+                    <button
+                      type="button"
+                      className={`tab-btn${singleModeOption === 'coordinate' ? ' is-active' : ''}`}
+                      onClick={() => {
+                        setSingleModeOption('coordinate')
+                        setIsMapClickArmed(false)
+                      }}
+                    >
+                      輸入座標
+                    </button>
+                  </div>
+                  
+                  {singleModeOption === 'coordinate' && (
+                    <div className="coordinate-fly-wrapper">
+                      <input
+                        type="text"
+                        className="text-input"
+                        placeholder="緯度,經度 (如: 25.04, 121.51)"
+                        value={coordinateInput}
+                        onChange={(e) => setCoordinateInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleCoordinateFly()
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={handleCoordinateFly}
+                      >
+                        飛行
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {mode === 'single' && (
+                <div className="single-mode-landmark-select-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px', padding: '10px', background: 'var(--surface-hover)', borderRadius: '8px', border: '1px solid var(--border-medium)', boxSizing: 'border-box' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)' }}>選擇已存地標</span>
+                    <button
+                      type="button"
+                      className={`advanced-filter-toggle-btn${activeFilterCount > 0 ? ' is-active' : ''}`}
+                      onClick={() => {
+                        setAdvancedSearchTab('region')
+                        setIsAdvancedSearchOpen(true)
+                      }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        height: '26px',
+                        padding: '0 8px',
+                        borderRadius: '4px',
+                        border: '1px solid var(--border-medium)',
+                        background: activeFilterCount > 0 ? '#ffeeb3' : 'var(--surface-elevated)',
+                        color: activeFilterCount > 0 ? '#856404' : 'var(--text-secondary)',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <span>進階篩選</span>
+                      {activeFilterCount > 0 && (
+                        <span style={{
+                          background: '#ffc107',
+                          color: '#212529',
+                          borderRadius: '50%',
+                          width: '14px',
+                          height: '14px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '9px',
+                          fontWeight: 800,
+                        }}>
+                          {activeFilterCount}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                  <select
+                    value={selectedLandmarkId}
+                    onChange={(e) => {
+                      const id = e.target.value
+                      setSelectedLandmarkId(id)
+                      const landmark = savedLandmarks.find((l) => l.id === id)
+                      if (landmark) {
+                        void handleFlyTo(landmark.coordinate.latitude, landmark.coordinate.longitude)
+                      }
+                    }}
+                    style={{
+                      width: '100%',
+                      height: '36px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-medium)',
+                      background: 'var(--surface-elevated)',
+                      color: 'var(--text-primary)',
+                      padding: '0 8px',
+                      fontSize: '13px',
+                    }}
+                    disabled={isPlanting}
+                  >
+                    <option value="">-- 選擇地標 (符合 {filteredSidebarLandmarks.length} 筆) --</option>
+                    {filteredSidebarLandmarks.map((landmark) => (
+                      <option key={landmark.id} value={landmark.id}>
+                        {landmark.name} ({landmark.landmarkType === 'flower' ? '花' : landmark.landmarkType === 'mushroom' ? '菇' : '明信片'}{landmark.region !== '未分類' ? ` - ${landmark.region}` : ''})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <LocationSearch
+                onLocationSelect={handleFlyTo}
+                disabled={isPlanting}
+              />
+
+              <div className="filter-section">
+                <button
+                  type="button"
+                  className={`filter-toggle-btn${isFilterOpen ? ' is-open' : ''}`}
+                  onClick={() => setIsFilterOpen(!isFilterOpen)}
+                >
+                  <Layers3 size={15} strokeWidth={2.4} />
+                  <span>篩選項目</span>
+                  <span className="arrow">{isFilterOpen ? '▲' : '▼'}</span>
+                </button>
+                {isFilterOpen && (
+                  <div className="filter-expanded-panel">
+                    <div className="filter-group">
+                      <span className="filter-label">地圖圖層顯示</span>
+                      <div className="filter-button-group">
+                        <button
+                          type="button"
+                          className={`filter-btn${mapLayerFilter.flower ? ' is-active' : ''}`}
+                          onClick={() => setMapLayerFilter(prev => ({ ...prev, flower: !prev.flower }))}
+                        >
+                          花點
+                        </button>
+                        <button
+                          type="button"
+                          className={`filter-btn${mapLayerFilter.mushroom ? ' is-active' : ''}`}
+                          onClick={() => setMapLayerFilter(prev => ({ ...prev, mushroom: !prev.mushroom }))}
+                        >
+                          菇點
+                        </button>
+                        <button
+                          type="button"
+                          className={`filter-btn${mapLayerFilter.postcard ? ' is-active' : ''}`}
+                          onClick={() => setMapLayerFilter(prev => ({ ...prev, postcard: !prev.postcard }))}
+                        >
+                          明信片
+                        </button>
+                      </div>
+                    </div>
+                    <div className="filter-group">
+                      <span className="filter-label">地區篩選</span>
+                      <select
+                        value={mapLayerFilter.region}
+                        onChange={(e) => setMapLayerFilter(prev => ({ ...prev, region: e.target.value }))}
+                      >
+                        <option value="all">所有地區</option>
+                        {Array.from(new Set(savedLandmarks.map(l => l.region).filter(Boolean))).map(r => (
+                          <option key={r} value={r}>{r}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <p className="helper-text" aria-live="polite">
+                {isPlanting
+                  ? '種花中已鎖定點圖操作與位置設定，停止後可重新調整'
+                  : mode === 'single'
+                    ? singleModeOption === 'click'
+                      ? '點擊地圖任何位置直接更新虛擬定位'
+                      : '請在上方輸入座標並點擊飛行'
+                    : '點擊地圖加入路徑點'}
+              </p>
+
+              {mode === 'route' && (
+                <div className="route-mode-selectors">
+                  <label className="field">
+                    <span>選擇已存路徑</span>
+                    <select
+                      value={selectedSavedRouteId}
+                      onChange={(e) => {
+                        const id = e.target.value
+                        setSelectedSavedRouteId(id)
+                        const route = savedRoutes.find((r) => r.id === id)
+                        if (route) {
+                          replaceWaypoints(route.waypoints)
+                          if (route.waypoints.length > 0) {
+                            setViewTarget({ ...route.waypoints[0] })
+                          }
+                          showToast(`已載入路徑: ${route.name}`)
+                        }
+                      }}
+                    >
+                      <option value="">-- 新增/載入路徑 --</option>
+                      {savedRoutes.map((route) => (
+                        <option key={route.id} value={route.id}>
+                          {route.name} ({route.waypoints.length}點)
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div style={{ marginTop: '8px' }}>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => setIsTempImportModalOpen(true)}
+                      style={{ width: '100%', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                      disabled={isPlanting}
+                    >
+                      <FileInput size={14} />
+                      <span>匯入暫存座標</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {mode === 'route' && (
+                <div className="inline-route-panel">
+                  <RoutePanel
+                    waypoints={waypoints}
+                    routeStatus={routeStatus}
+                    hasGeneratedFlowerRoute={hasGeneratedFlowerRoute}
+                    generatedRouteSummary={generatedRouteSummary}
+                    onGenerateFlowerRoute={handleGenerateFlowerRoute}
+                    onStartRoute={handleStartRoute}
+                    onPauseRoute={handlePauseRoute}
+                    onResumeRoute={handleResumeRoute}
+                    onStopRoute={handleStopRoute}
+                    onReverseRoute={handleReverseRoute}
+                  />
+                </div>
+              )}
+            </section>
           </aside>
           )}
         </main>
@@ -1692,33 +2037,6 @@ export default function App() {
         </div>
       )}
 
-      {isManageModalOpen && (
-        <div className="modal-backdrop" onClick={() => setIsManageModalOpen(false)}>
-          <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>位置資訊設定</h3>
-            </div>
-            <div className="modal-body">
-              <section className="modal-section">
-                <button className="primary-button" onClick={locateByBrowser} disabled={isLocating}>
-                  {isLocating ? '定位中...' : '重新取得目前位置'}
-                </button>
-                <button
-                  className="ghost-button modal-stack-button"
-                  onClick={() => {
-                    setManagerTab('landmarks')
-                    setIsLandmarkManagerOpen(true)
-                  }}
-                >
-                  地標 / 路徑管理
-                </button>
-                <button className="secondary-button modal-stack-button" onClick={() => setIsFlySettingsOpen(true)}>飛行設定</button>
-                <p className="helper-text">已儲存 {savedLandmarks.length} 個地標，可在飛行設定中直接搜尋。</p>
-              </section>
-            </div>
-          </div>
-        </div>
-      )}
 
       {isSaveRouteModalOpen && (
         <div className="modal-backdrop" onClick={handleCloseSaveRouteModal}>
@@ -1759,6 +2077,52 @@ export default function App() {
                 >
                   {routeSaving ? '儲存中...' : '確認儲存'}
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isTempImportModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIsTempImportModalOpen(false)}>
+          <div className="modal-panel modal-panel-narrow" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>匯入暫存座標</h3>
+            </div>
+            <div className="modal-body">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <p className="helper-text" style={{ fontSize: '13px', margin: 0, color: 'var(--text-muted)' }}>
+                  請貼上經緯度座標（每行一筆，例如：`25.04, 121.51`）或 JSON 座標陣列。此路徑為暫時使用，不會儲存至路徑庫。
+                </p>
+                <textarea
+                  className="text-input"
+                  placeholder="25.0478, 121.5170&#10;25.0485, 121.5185&#10;..."
+                  value={tempCoordsInput}
+                  onChange={(e) => setTempCoordsInput(e.target.value)}
+                  style={{ height: '180px', width: '100%', resize: 'vertical', fontSize: '13px', fontFamily: 'monospace', padding: '10px', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-medium)', borderRadius: '6px' }}
+                />
+                <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      setTempCoordsInput('')
+                      setIsTempImportModalOpen(false)
+                    }}
+                    style={{ height: '36px', padding: '0 16px', fontSize: '13px' }}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={handleConfirmTempImport}
+                    disabled={!tempCoordsInput.trim()}
+                    style={{ height: '36px', padding: '0 16px', fontSize: '13px' }}
+                  >
+                    匯入
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1901,10 +2265,10 @@ export default function App() {
                         disabled={routeStatus.state !== 'idle'}
                         type="button"
                       >
-                        <span className="route-title-line">
+                        <div className="route-title-line">
                           <strong>{route.name}</strong>
                           <span className="route-distance-badge">{formatRouteDistance(route.waypoints)}</span>
-                        </span>
+                        </div>
                         <span>{route.waypoints.length} 個路徑點</span>
                       </button>
                       <div className="saved-route-actions">
@@ -1916,16 +2280,6 @@ export default function App() {
                           type="button"
                         >
                           <Copy aria-hidden="true" size={16} strokeWidth={2.4} />
-                        </button>
-                        <button
-                          className="icon-button"
-                          onClick={() => handleLoadSavedRoute(route)}
-                          disabled={routeStatus.state !== 'idle'}
-                          aria-label={`載入路徑：${route.name}`}
-                          title={`載入路徑：${route.name}`}
-                          type="button"
-                        >
-                          <FolderOpen aria-hidden="true" size={16} strokeWidth={2.4} />
                         </button>
                         <button
                           className="icon-button"
@@ -1985,8 +2339,8 @@ export default function App() {
               </section>
               {flyMode === 'landmark' && (
                 <section className="modal-section landmark-browser">
-                  <div className="landmark-toolbar">
-                    <label className="field landmark-search-field">
+                  <div className="landmark-toolbar" style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+                    <label className="field landmark-search-field" style={{ flex: '1 1 200px' }}>
                       <span>搜尋地標</span>
                       <input
                         value={flyLandmarkSearchInput}
@@ -1994,8 +2348,8 @@ export default function App() {
                         placeholder="輸入名稱或座標快速搜尋"
                       />
                     </label>
-                    <div className="field">
-                      <span>篩選</span>
+                    <div className="field" style={{ flex: '0 0 auto' }}>
+                      <span>類型</span>
                       <div className="segmented-control" role="tablist" aria-label="地標類型篩選">
                         <button
                           type="button"
@@ -2018,7 +2372,57 @@ export default function App() {
                         >
                           菇點
                         </button>
+                        <button
+                          type="button"
+                          className={flyLandmarkTypeFilter === 'postcard' ? 'is-active' : ''}
+                          onClick={() => setFlyLandmarkTypeFilter('postcard')}
+                        >
+                          探測器
+                        </button>
                       </div>
+                    </div>
+                    <div className="field" style={{ flex: '0 0 auto', alignSelf: 'flex-end' }}>
+                      <button
+                        type="button"
+                        className={`advanced-filter-toggle-btn${activeFilterCount > 0 ? ' is-active' : ''}`}
+                        onClick={() => {
+                          setAdvancedSearchTab('region')
+                          setIsAdvancedSearchOpen(true)
+                        }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          height: '38px',
+                          padding: '0 16px',
+                          borderRadius: '8px',
+                          border: '1px solid var(--border-medium)',
+                          background: activeFilterCount > 0 ? '#ffeeb3' : 'var(--surface-elevated)',
+                          color: activeFilterCount > 0 ? '#856404' : 'var(--text-primary)',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <span>進階搜尋</span>
+                        {activeFilterCount > 0 && (
+                          <span style={{
+                            background: '#ffc107',
+                            color: '#212529',
+                            borderRadius: '50%',
+                            width: '18px',
+                            height: '18px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            marginLeft: '4px',
+                          }}>
+                            {activeFilterCount}
+                          </span>
+                        )}
+                      </button>
                     </div>
                   </div>
                   <div className="landmark-section-head">
@@ -2038,7 +2442,16 @@ export default function App() {
                               <span className={`landmark-type-dot is-${landmark.landmarkType}`} aria-hidden="true" />
                               <span className="landmark-row-copy">
                                 <strong>{landmark.name}</strong>
-                                <span>{formatCoordinate(landmark.coordinate)}</span>
+                                <span>{formatCoordinate(landmark.coordinate)}{landmark.region !== '未分類' ? ` | 分類: ${landmark.region}` : ''}</span>
+                                {landmark.tags && landmark.tags.length > 0 && (
+                                  <span className="landmark-row-tags" style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
+                                    {landmark.tags.map(t => (
+                                      <span key={t} className="tag-pill" style={{ fontSize: '10px', background: 'var(--surface-hover)', padding: '2px 6px', borderRadius: '8px', border: '1px solid var(--border-medium)', color: 'var(--text-secondary)' }}>
+                                        #{t}
+                                      </span>
+                                    ))}
+                                  </span>
+                                )}
                               </span>
                             </button>
                             <button
@@ -2231,20 +2644,137 @@ export default function App() {
                       </div>
                       <label className="field">
                         <span>地區分類</span>
-                        <input
-                          type="text"
-                          className="text-input"
-                          value={landmarkRegionInput}
-                          onChange={(e) => setLandmarkRegionInput(e.target.value)}
-                          placeholder="例如：台北、日本、Xpark"
-                          list="region-options"
-                        />
-                        <datalist id="region-options">
-                          {Array.from(new Set(savedLandmarks.map(l => l.region).filter(Boolean))).map(r => (
-                            <option key={r} value={r} />
-                          ))}
-                        </datalist>
+                        <select
+                          className="select-input"
+                          style={{
+                            width: '100%',
+                            height: '38px',
+                            borderRadius: '8px',
+                            border: '1px solid var(--border-medium)',
+                            background: 'var(--surface-elevated)',
+                            color: 'var(--text-primary)',
+                            padding: '0 10px',
+                            fontSize: '14px',
+                          }}
+                          value={
+                            ['亞洲', '歐洲', '美洲', '非洲', '大洋洲', '台灣', '日本', '韓國', '美國', '越南', '冰島', '未分類'].includes(landmarkRegionInput)
+                              ? landmarkRegionInput
+                              : '自訂'
+                          }
+                          onChange={(e) => {
+                            const val = e.target.value
+                            if (val !== '自訂') {
+                              setLandmarkRegionInput(val)
+                            } else {
+                              setLandmarkRegionInput('')
+                            }
+                          }}
+                        >
+                          <option value="未分類">未分類</option>
+                          <option value="亞洲">亞洲</option>
+                          <option value="歐洲">歐洲</option>
+                          <option value="美洲">美洲</option>
+                          <option value="非洲">非洲</option>
+                          <option value="大洋洲">大洋洲</option>
+                          <option value="台灣">台灣</option>
+                          <option value="日本">日本</option>
+                          <option value="韓國">韓國</option>
+                          <option value="美國">美國</option>
+                          <option value="越南">越南</option>
+                          <option value="冰島">冰島</option>
+                          <option value="自訂">自訂地區名稱...</option>
+                        </select>
+                        {!['亞洲', '歐洲', '美洲', '非洲', '大洋洲', '台灣', '日本', '韓國', '美國', '越南', '冰島', '未分類'].includes(landmarkRegionInput) && (
+                          <input
+                            type="text"
+                            className="text-input"
+                            style={{ marginTop: '8px' }}
+                            value={landmarkRegionInput}
+                            onChange={(e) => setLandmarkRegionInput(e.target.value)}
+                            placeholder="請輸入自訂地區名稱"
+                          />
+                        )}
                       </label>
+
+                      <div className="field">
+                        <span>地標標籤 (#)</span>
+                        <div className="tag-input-container" style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                          <input
+                            type="text"
+                            className="text-input"
+                            placeholder="輸入標籤後點選新增 (如: 巨菇、景點)"
+                            value={landmarkNewTag}
+                            onChange={(e) => setLandmarkNewTag(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                const val = landmarkNewTag.trim().replace(/^#/, '')
+                                if (val && !landmarkTags.includes(val)) {
+                                  setLandmarkTags([...landmarkTags, val])
+                                }
+                                setLandmarkNewTag('')
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            style={{ minWidth: '60px', padding: '0 12px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            onClick={() => {
+                              const val = landmarkNewTag.trim().replace(/^#/, '')
+                              if (val && !landmarkTags.includes(val)) {
+                                  setLandmarkTags([...landmarkTags, val])
+                              }
+                              setLandmarkNewTag('')
+                            }}
+                          >
+                            新增
+                          </button>
+                        </div>
+                        {landmarkTags.length > 0 && (
+                          <div className="landmark-tags-list" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                            {landmarkTags.map((tag) => (
+                              <span
+                                key={tag}
+                                className="landmark-tag-badge"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '4px 8px',
+                                  borderRadius: '12px',
+                                  background: 'var(--surface-hover)',
+                                  border: '1px solid var(--border-medium)',
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                #{tag}
+                                <button
+                                  type="button"
+                                  onClick={() => setLandmarkTags(landmarkTags.filter((t) => t !== tag))}
+                                  style={{
+                                    border: 'none',
+                                    background: 'none',
+                                    padding: 0,
+                                    cursor: 'pointer',
+                                    color: 'var(--text-secondary)',
+                                    fontSize: '11px',
+                                    fontWeight: 800,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    width: '12px',
+                                    height: '12px',
+                                  }}
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       <div className="landmark-create-actions">
                         <div className="landmark-create-note">
                           {editingLandmarkId ? '更新後會同步搜尋清單。' : '儲存後可直接從地標清單帶入目的地。'}
@@ -2281,8 +2811,8 @@ export default function App() {
                   </section>
                     ) : (
                   <section className="modal-section landmark-manager-list-panel">
-                    <div className="landmark-toolbar">
-                      <label className="field landmark-search-field">
+                    <div className="landmark-toolbar" style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+                      <label className="field landmark-search-field" style={{ flex: '1 1 200px' }}>
                         <span>搜尋地標</span>
                         <input
                           value={landmarkSearchInput}
@@ -2290,8 +2820,8 @@ export default function App() {
                           placeholder="輸入名稱或座標"
                         />
                       </label>
-                      <div className="field">
-                        <span>篩選</span>
+                      <div className="field" style={{ flex: '0 0 auto' }}>
+                        <span>類型</span>
                         <div className="segmented-control" role="tablist" aria-label="地標管理類型篩選">
                           <button
                             type="button"
@@ -2314,7 +2844,57 @@ export default function App() {
                           >
                             菇點
                           </button>
+                          <button
+                            type="button"
+                            className={landmarkTypeFilter === 'postcard' ? 'is-active' : ''}
+                            onClick={() => setLandmarkTypeFilter('postcard')}
+                          >
+                            探測器
+                          </button>
                         </div>
+                      </div>
+                      <div className="field" style={{ flex: '0 0 auto', alignSelf: 'flex-end' }}>
+                        <button
+                          type="button"
+                          className={`advanced-filter-toggle-btn${activeFilterCount > 0 ? ' is-active' : ''}`}
+                          onClick={() => {
+                            setAdvancedSearchTab('region')
+                            setIsAdvancedSearchOpen(true)
+                          }}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            height: '38px',
+                            padding: '0 16px',
+                            borderRadius: '8px',
+                            border: '1px solid var(--border-medium)',
+                            background: activeFilterCount > 0 ? '#ffeeb3' : 'var(--surface-elevated)',
+                            color: activeFilterCount > 0 ? '#856404' : 'var(--text-primary)',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          <span>進階搜尋</span>
+                          {activeFilterCount > 0 && (
+                            <span style={{
+                              background: '#ffc107',
+                              color: '#212529',
+                              borderRadius: '50%',
+                              width: '18px',
+                              height: '18px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              marginLeft: '4px',
+                            }}>
+                              {activeFilterCount}
+                            </span>
+                          )}
+                        </button>
                       </div>
                     </div>
                     <div className="landmark-section-head">
@@ -2334,7 +2914,16 @@ export default function App() {
                                 <span className={`landmark-type-dot is-${landmark.landmarkType}`} aria-hidden="true" />
                                 <span className="landmark-row-copy">
                                   <strong>{landmark.name}</strong>
-                                  <span>{formatCoordinate(landmark.coordinate)}</span>
+                                  <span>{formatCoordinate(landmark.coordinate)}{landmark.region !== '未分類' ? ` | 分類: ${landmark.region}` : ''}</span>
+                                  {landmark.tags && landmark.tags.length > 0 && (
+                                    <span className="landmark-row-tags" style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
+                                      {landmark.tags.map(t => (
+                                        <span key={t} className="tag-pill" style={{ fontSize: '10px', background: 'var(--surface-hover)', padding: '2px 6px', borderRadius: '8px', border: '1px solid var(--border-medium)', color: 'var(--text-secondary)' }}>
+                                          #{t}
+                                        </span>
+                                      ))}
+                                    </span>
+                                  )}
                                 </span>
                               </button>
                               <div className="landmark-edit-actions">
@@ -2469,58 +3058,40 @@ export default function App() {
                         {pagedSavedRoutes.map((route) => (
                           <div key={route.id} className="saved-route-item route-manager-pill">
                             <div className="saved-route-main route-manager-main">
-                              <span className="route-title-line">
+                              <div className="route-title-line">
                                 <strong>{route.name}</strong>
                                 <span className="route-distance-badge">{formatRouteDistance(route.waypoints)}</span>
-                              </span>
+                              </div>
                               <span>{route.waypoints.length} 個路徑點</span>
                             </div>
                             <div className="saved-route-actions">
                               <button
                                 className="icon-button"
-                                onClick={() => setOpenRouteActionId((current) => current === route.id ? '' : route.id)}
-                                aria-label={`開啟路徑選單：${route.name}`}
-                                aria-expanded={openRouteActionId === route.id}
-                                title={`路徑選單：${route.name}`}
+                                onClick={() => void handleCopyRouteCoordinates(route)}
+                                aria-label={`複製路徑節點：${route.name}`}
+                                title={`複製路徑節點：${route.name}`}
                                 type="button"
                               >
-                                <MoreHorizontal aria-hidden="true" size={16} strokeWidth={2.4} />
+                                <Copy aria-hidden="true" size={16} strokeWidth={2.4} />
                               </button>
-                              {openRouteActionId === route.id && (
-                                <div className="landmark-action-menu">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      void handleCopyRouteCoordinates(route)
-                                      setOpenRouteActionId('')
-                                    }}
-                                  >
-                                    <Copy aria-hidden="true" size={15} strokeWidth={2.4} />
-                                    複製節點
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      handleExportSavedRoute(route)
-                                      setOpenRouteActionId('')
-                                    }}
-                                  >
-                                    <Download aria-hidden="true" size={15} strokeWidth={2.4} />
-                                    匯出
-                                  </button>
-                                  <button
-                                    className="danger"
-                                    type="button"
-                                    onClick={() => {
-                                      setOpenRouteActionId('')
-                                      void handleDeleteSavedRoute(route.id)
-                                    }}
-                                  >
-                                    <Trash2 aria-hidden="true" size={15} strokeWidth={2.4} />
-                                    刪除
-                                  </button>
-                                </div>
-                              )}
+                              <button
+                                className="icon-button"
+                                onClick={() => handleExportSavedRoute(route)}
+                                aria-label={`匯出路徑：${route.name}`}
+                                title={`匯出路徑：${route.name}`}
+                                type="button"
+                              >
+                                <Download aria-hidden="true" size={16} strokeWidth={2.4} />
+                              </button>
+                              <button
+                                className="icon-button danger"
+                                onClick={() => void handleDeleteSavedRoute(route.id)}
+                                aria-label={`刪除路徑：${route.name}`}
+                                title={`刪除路徑：${route.name}`}
+                                type="button"
+                              >
+                                <Trash2 aria-hidden="true" size={16} strokeWidth={2.4} />
+                              </button>
                             </div>
                           </div>
                         ))}
@@ -2556,7 +3127,412 @@ export default function App() {
           </div>
         </div>
       )}
+      {isAdvancedSearchOpen && (
+        <div className="modal-backdrop" onClick={() => setIsAdvancedSearchOpen(false)}>
+          <div className="modal-panel advanced-search-modal-panel" onClick={(e) => e.stopPropagation()} style={{
+            maxWidth: '680px',
+            width: '90%',
+            maxHeight: '85vh',
+            borderRadius: '24px',
+            background: '#faf9f6',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.12)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          }}>
+            {/* Modal Header */}
+            <div className="modal-header" style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '20px 24px 10px 24px',
+              borderBottom: 'none',
+              background: 'transparent',
+            }}>
+              <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)' }}>進階搜尋</h3>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setIsAdvancedSearchOpen(false)}
+                style={{ border: 'none', background: 'var(--surface-hover)', borderRadius: '50%', width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+              >
+                <X size={16} strokeWidth={2.6} />
+              </button>
+            </div>
 
+            {/* Active Filters Summary */}
+            <div className="active-filters-summary" style={{ padding: '0 24px 16px 24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <span className={`summary-pill${advancedSearchTab === 'region' ? ' is-active' : ''}`} style={{
+                  padding: '6px 14px',
+                  borderRadius: '16px',
+                  border: '1px solid var(--border-medium)',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  background: selectedRegions.length > 0 ? '#fbeed5' : 'transparent',
+                  color: selectedRegions.length > 0 ? '#b27a30' : 'var(--text-secondary)',
+                }}>
+                  地區 {selectedRegions.length > 0 && `(${selectedRegions.length})`}
+                </span>
+                <span className={`summary-pill${advancedSearchTab === 'type' ? ' is-active' : ''}`} style={{
+                  padding: '6px 14px',
+                  borderRadius: '16px',
+                  border: '1px solid var(--border-medium)',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  background: selectedTypes.length > 0 ? '#fbeed5' : 'transparent',
+                  color: selectedTypes.length > 0 ? '#b27a30' : 'var(--text-secondary)',
+                }}>
+                  類別 {selectedTypes.length > 0 && `(${selectedTypes.length})`}
+                </span>
+                <span className={`summary-pill${advancedSearchTab === 'tag' ? ' is-active' : ''}`} style={{
+                  padding: '6px 14px',
+                  borderRadius: '16px',
+                  border: '1px solid var(--border-medium)',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  background: selectedTags.length > 0 ? '#fbeed5' : 'transparent',
+                  color: selectedTags.length > 0 ? '#b27a30' : 'var(--text-secondary)',
+                }}>
+                  標籤 {selectedTags.length > 0 && `(${selectedTags.length})`}
+                </span>
+              </div>
+
+              {/* Selected items chips */}
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', minHeight: '24px', alignItems: 'center' }}>
+                {selectedRegions.map(r => (
+                  <span key={r} style={{ padding: '4px 10px', borderRadius: '12px', background: '#eef2ff', color: '#4f46e5', fontSize: '11px', fontWeight: 600 }}>
+                    {r}
+                  </span>
+                ))}
+                {selectedTypes.map(t => (
+                  <span key={t} style={{ padding: '4px 10px', borderRadius: '12px', background: '#eef2ff', color: '#4f46e5', fontSize: '11px', fontWeight: 600 }}>
+                    {t === 'flower' ? '花點' : t === 'mushroom' ? '菇點' : '探測器'}
+                  </span>
+                ))}
+                {selectedTags.map(t => (
+                  <span key={t} style={{ padding: '4px 10px', borderRadius: '12px', background: '#eef2ff', color: '#4f46e5', fontSize: '11px', fontWeight: 600 }}>
+                    #{t}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Split Content Body */}
+            <div className="modal-body" style={{
+              flex: 1,
+              display: 'flex',
+              padding: '0 24px',
+              gap: '20px',
+              overflow: 'hidden',
+              minHeight: '280px',
+            }}>
+              {/* Left Menu Sidebar */}
+              <div className="advanced-search-menu" style={{ width: '180px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setAdvancedSearchTab('region')}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    padding: '12px 16px',
+                    borderRadius: '16px',
+                    border: '1px solid var(--border-medium)',
+                    background: advancedSearchTab === 'region' ? 'var(--surface-elevated)' : 'transparent',
+                    boxShadow: advancedSearchTab === 'region' ? '0 4px 10px rgba(0,0,0,0.04)' : 'none',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    width: '100%',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>地區</span>
+                    {selectedRegions.length > 0 && (
+                      <span style={{ background: '#34c759', color: '#fff', borderRadius: '50%', width: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 800 }}>{selectedRegions.length}</span>
+                    )}
+                  </div>
+                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
+                    {selectedRegions.length > 0 ? selectedRegions.join('、') : '全部地區'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setAdvancedSearchTab('type')}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    padding: '12px 16px',
+                    borderRadius: '16px',
+                    border: '1px solid var(--border-medium)',
+                    background: advancedSearchTab === 'type' ? 'var(--surface-elevated)' : 'transparent',
+                    boxShadow: advancedSearchTab === 'type' ? '0 4px 10px rgba(0,0,0,0.04)' : 'none',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    width: '100%',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>類別</span>
+                    {selectedTypes.length > 0 && (
+                      <span style={{ background: '#34c759', color: '#fff', borderRadius: '50%', width: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 800 }}>{selectedTypes.length}</span>
+                    )}
+                  </div>
+                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
+                    {selectedTypes.length > 0 ? selectedTypes.map(t => t === 'flower' ? '花點' : t === 'mushroom' ? '菇點' : '探測器').join('、') : '全部類別'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setAdvancedSearchTab('tag')}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    padding: '12px 16px',
+                    borderRadius: '16px',
+                    border: '1px solid var(--border-medium)',
+                    background: advancedSearchTab === 'tag' ? 'var(--surface-elevated)' : 'transparent',
+                    boxShadow: advancedSearchTab === 'tag' ? '0 4px 10px rgba(0,0,0,0.04)' : 'none',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    width: '100%',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)' }}>標籤</span>
+                    {selectedTags.length > 0 && (
+                      <span style={{ background: '#34c759', color: '#fff', borderRadius: '50%', width: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 800 }}>{selectedTags.length}</span>
+                    )}
+                  </div>
+                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
+                    {selectedTags.length > 0 ? selectedTags.map(t => `#${t}`).join('、') : '全部標籤'}
+                  </span>
+                </button>
+              </div>
+
+              {/* Right Selection Grid */}
+              <div className="advanced-search-grid" style={{
+                flex: 1,
+                overflowY: 'auto',
+                padding: '4px',
+                border: '1px solid var(--border-light)',
+                borderRadius: '16px',
+                background: '#ffffff',
+                maxHeight: '400px',
+              }}>
+                {advancedSearchTab === 'region' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px', padding: '12px' }}>
+                    {['亞洲', '歐洲', '北美洲', '南美洲', '大洋洲', '非洲', '南極洲', '台灣', '日本', '美國', '冰島', '義大利', '韓國', '越南', '未分類'].map((r) => {
+                      const isSelected = selectedRegions.includes(r)
+                      return (
+                        <div
+                          key={r}
+                          onClick={() => {
+                            if (isSelected) {
+                              setSelectedRegions(selectedRegions.filter(x => x !== r))
+                            } else {
+                              setSelectedRegions([...selectedRegions, r])
+                            }
+                          }}
+                          style={{
+                            padding: '16px',
+                            borderRadius: '14px',
+                            border: isSelected ? '2px solid #34c759' : '1px solid var(--border-medium)',
+                            background: isSelected ? '#f2fbf4' : 'var(--surface-elevated)',
+                            cursor: 'pointer',
+                            textAlign: 'center',
+                            fontWeight: 700,
+                            position: 'relative',
+                            userSelect: 'none',
+                          }}
+                        >
+                          {r}
+                          {isSelected && (
+                            <span style={{
+                              position: 'absolute',
+                              top: '6px',
+                              right: '6px',
+                              background: '#34c759',
+                              color: '#fff',
+                              borderRadius: '50%',
+                              width: '16px',
+                              height: '16px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '9px',
+                            }}>✓</span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {advancedSearchTab === 'type' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px', padding: '12px' }}>
+                    {[
+                      { id: 'mushroom', label: '菇點' },
+                      { id: 'flower', label: '花點' },
+                      { id: 'postcard', label: '探測器' },
+                    ].map((type) => {
+                      const isSelected = selectedTypes.includes(type.id)
+                      return (
+                        <div
+                          key={type.id}
+                          onClick={() => {
+                            if (isSelected) {
+                              setSelectedTypes(selectedTypes.filter(x => x !== type.id))
+                            } else {
+                              setSelectedTypes([...selectedTypes, type.id])
+                            }
+                          }}
+                          style={{
+                            padding: '16px',
+                            borderRadius: '14px',
+                            border: isSelected ? '2px solid #34c759' : '1px solid var(--border-medium)',
+                            background: isSelected ? '#f2fbf4' : 'var(--surface-elevated)',
+                            cursor: 'pointer',
+                            textAlign: 'center',
+                            fontWeight: 700,
+                            position: 'relative',
+                            userSelect: 'none',
+                          }}
+                        >
+                          {type.label}
+                          {isSelected && (
+                            <span style={{
+                              position: 'absolute',
+                              top: '6px',
+                              right: '6px',
+                              background: '#34c759',
+                              color: '#fff',
+                              borderRadius: '50%',
+                              width: '16px',
+                              height: '16px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '9px',
+                            }}>✓</span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {advancedSearchTab === 'tag' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px', padding: '12px' }}>
+                    {Array.from(new Set(savedLandmarks.flatMap((l) => l.tags || []).filter(Boolean))).length === 0 ? (
+                      <p style={{ gridColumn: '1/-1', textAlign: 'center', padding: '24px', color: 'var(--text-secondary)' }}>尚未建立任何標籤</p>
+                    ) : (
+                      Array.from(new Set(savedLandmarks.flatMap((l) => l.tags || []).filter(Boolean))).map((tag) => {
+                        const isSelected = selectedTags.includes(tag)
+                        return (
+                          <div
+                            key={tag}
+                            onClick={() => {
+                              if (isSelected) {
+                                setSelectedTags(selectedTags.filter(x => x !== tag))
+                              } else {
+                                setSelectedTags([...selectedTags, tag])
+                              }
+                            }}
+                            style={{
+                              padding: '16px',
+                              borderRadius: '14px',
+                              border: isSelected ? '2px solid #34c759' : '1px solid var(--border-medium)',
+                              background: isSelected ? '#f2fbf4' : 'var(--surface-elevated)',
+                              cursor: 'pointer',
+                              textAlign: 'center',
+                              fontWeight: 700,
+                              position: 'relative',
+                              userSelect: 'none',
+                            }}
+                          >
+                            #{tag}
+                            {isSelected && (
+                              <span style={{
+                                position: 'absolute',
+                                top: '6px',
+                                right: '6px',
+                                background: '#34c759',
+                                color: '#fff',
+                                borderRadius: '50%',
+                                width: '16px',
+                                height: '16px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '9px',
+                              }}>✓</span>
+                            )}
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom Actions Bar */}
+            <div className="modal-footer" style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '16px 24px 20px 24px',
+              borderTop: 'none',
+              background: 'transparent',
+            }}>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  setSelectedRegions([])
+                  setSelectedTypes([])
+                  setSelectedTags([])
+                }}
+                style={{
+                  height: '40px',
+                  borderRadius: '12px',
+                  padding: '0 20px',
+                  border: '1px solid var(--border-medium)',
+                  background: '#fff',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                重設
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => setIsAdvancedSearchOpen(false)}
+                style={{
+                  height: '40px',
+                  borderRadius: '12px',
+                  padding: '0 24px',
+                  background: '#34c759',
+                  color: '#fff',
+                  border: 'none',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                完成
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      
 
     </div>
   )

@@ -63,7 +63,7 @@ class TestInterpolateRoute:
         p1 = GPSCoordinate(latitude=25.0, longitude=121.5)
         p2 = GPSCoordinate(latitude=25.1, longitude=121.5)
         result = RouteEngine.interpolate_route([p1, p2], speed=5.0)
-        last_coord, last_wait = result[-1]
+        last_coord, last_wait, _ = result[-1]
         assert last_coord.latitude == pytest.approx(p2.latitude)
         assert last_coord.longitude == pytest.approx(p2.longitude)
         assert last_wait == 0.0
@@ -73,7 +73,7 @@ class TestInterpolateRoute:
         p2 = GPSCoordinate(latitude=25.1, longitude=121.5)
         speed = 3.0
         result = RouteEngine.interpolate_route([p1, p2], speed=speed)
-        total_time = sum(wait for _, wait in result)
+        total_time = sum(wait for _, wait, _ in result)
         expected_time = haversine_distance(p1, p2) / speed
         assert abs(total_time - expected_time) < 0.001
 
@@ -83,7 +83,7 @@ class TestInterpolateRoute:
         p3 = GPSCoordinate(latitude=25.1, longitude=121.5)
         speed = 5.0
         result = RouteEngine.interpolate_route([p1, p2, p3], speed=speed)
-        total_time = sum(wait for _, wait in result)
+        total_time = sum(wait for _, wait, _ in result)
         expected_time = (
             haversine_distance(p1, p2) + haversine_distance(p2, p3)
         ) / speed

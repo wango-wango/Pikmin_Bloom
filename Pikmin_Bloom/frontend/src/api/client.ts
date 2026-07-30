@@ -6,6 +6,7 @@ import type {
   StatusUpdate,
   SavedRoute,
   PostcardLandmark,
+  SavedLandmark,
 } from '../types'
 
 const BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL) || ''
@@ -72,11 +73,13 @@ function mapRouteStatus(s: {
   current_position: { latitude: number; longitude: number } | null
   progress: number
   device_id?: string | null
+  waypoints?: { latitude: number; longitude: number }[]
 }): RouteStatus {
   return {
     state: s.state as RouteStatus['state'],
     currentPosition: s.current_position,
     progress: s.progress,
+    waypoints: s.waypoints,
   }
 }
 
@@ -135,12 +138,17 @@ export const apiClient = {
     await request<void>('/api/route/stop', { method: 'POST' })
   },
 
+  async reverseRoute(): Promise<void> {
+    await request<void>('/api/route/reverse', { method: 'POST' })
+  },
+
   async getStatus(): Promise<RouteStatus> {
     const data = await request<{
       state: string
       current_position: { latitude: number; longitude: number } | null
       progress: number
       device_id?: string | null
+      waypoints?: { latitude: number; longitude: number }[]
     }>('/api/status')
     return mapRouteStatus(data)
   },
@@ -251,7 +259,7 @@ export const apiClient = {
 
 
 
-  async getLandmarks(): Promise<{ id: string; name: string; coordinate: { latitude: number; longitude: number }; landmarkType: 'flower' | 'mushroom' | 'postcard'; region: string }[]> {
+  async getLandmarks(): Promise<SavedLandmark[]> {
     return request('/api/landmarks')
   },
 
@@ -260,7 +268,8 @@ export const apiClient = {
     coordinate: { latitude: number; longitude: number }
     landmarkType: 'flower' | 'mushroom' | 'postcard'
     region: string
-  }): Promise<{ id: string; name: string; coordinate: { latitude: number; longitude: number }; landmarkType: 'flower' | 'mushroom' | 'postcard'; region: string }> {
+    tags: string[]
+  }): Promise<SavedLandmark> {
     return request('/api/landmarks', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -272,7 +281,8 @@ export const apiClient = {
     coordinate: { latitude: number; longitude: number }
     landmarkType: 'flower' | 'mushroom' | 'postcard'
     region: string
-  }): Promise<{ id: string; name: string; coordinate: { latitude: number; longitude: number }; landmarkType: 'flower' | 'mushroom' | 'postcard'; region: string }> {
+    tags: string[]
+  }): Promise<SavedLandmark> {
     return request(`/api/landmarks/${landmarkId}`, {
       method: 'PUT',
       body: JSON.stringify(payload),

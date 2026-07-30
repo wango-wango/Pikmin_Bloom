@@ -12,6 +12,7 @@ services:
       - TUNNELD_PORT=49151
       - RSD_ADDRESS_OVERRIDE=host.docker.internal
       - HOST_BRIDGE_URL=http://host.docker.internal:5680
+      - MOCK_MODE=${MOCK_MODE:-false}
     restart: unless-stopped
 
   frontend:

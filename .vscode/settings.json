@@ -1,0 +1,6 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/Pikmin_Bloom/venv/bin/python",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/Pikmin_Bloom/backend"
+  ]
+}

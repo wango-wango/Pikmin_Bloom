@@ -21,6 +21,7 @@ class Landmark(BaseModel):
     coordinate: GPSCoordinate
     landmarkType: Literal["flower", "mushroom", "postcard"] = "mushroom"
     region: str = Field(default="未分類")
+    tags: list[str] = Field(default=[])
 
 
 class LandmarkCreateRequest(BaseModel):
@@ -28,6 +29,7 @@ class LandmarkCreateRequest(BaseModel):
     coordinate: GPSCoordinate
     landmarkType: Literal["flower", "mushroom", "postcard"] = "mushroom"
     region: str = Field(default="未分類")
+    tags: list[str] = Field(default=[])
 
 
 class LandmarkUpdateRequest(BaseModel):
@@ -35,6 +37,7 @@ class LandmarkUpdateRequest(BaseModel):
     coordinate: GPSCoordinate
     landmarkType: Literal["flower", "mushroom", "postcard"] = "mushroom"
     region: str = Field(default="未分類")
+    tags: list[str] = Field(default=[])
 
 
 def _read_landmarks() -> list[Landmark]:
@@ -70,6 +73,7 @@ async def create_landmark(req: LandmarkCreateRequest) -> Landmark:
         coordinate=req.coordinate,
         landmarkType=req.landmarkType,
         region=req.region,
+        tags=req.tags,
     )
     landmarks.insert(0, item)
     _write_landmarks(landmarks)
@@ -88,6 +92,7 @@ async def update_landmark(landmark_id: str, req: LandmarkUpdateRequest) -> Landm
             coordinate=req.coordinate,
             landmarkType=req.landmarkType,
             region=req.region,
+            tags=req.tags,
         )
         landmarks[index] = updated
         _write_landmarks(landmarks)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from enum import Enum
 
+# pyrefly: ignore [missing-import]
 from pydantic import BaseModel, Field
 
 
@@ -42,6 +43,7 @@ class RouteStatus(BaseModel):
     current_position: GPSCoordinate | None = None
     progress: float = 0.0  # 0.0 ~ 1.0
     device_id: str | None = None
+    waypoints: list[GPSCoordinate] = []
 
 
 class StatusUpdate(BaseModel):

@@ -1,3 +1,4 @@
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.dependencies import get_route_engine, get_ws_manager
@@ -77,4 +78,30 @@ async def stop_route(
     """停止路徑移動。"""
     await route_engine.stop_route()
     await ws_manager.broadcast({"type": "status", "data": {"state": "idle", "progress": 0}})
+    return {"success": True}
+
+
+@router.post("/reverse")
+async def reverse_route(
+    route_engine: RouteEngine = Depends(get_route_engine),
+    ws_manager: WebSocketManager = Depends(get_ws_manager),
+) -> dict:
+    """反轉路徑移動方向。"""
+    await route_engine.reverse_route()
+    status = route_engine.get_status()
+    await ws_manager.broadcast({
+        "type": "status",
+        "data": {
+            "state": status.state,
+            "progress": status.progress,
+            "current_position": {
+                "latitude": status.current_position.latitude,
+                "longitude": status.current_position.longitude,
+            } if status.current_position else None,
+            "waypoints": [
+                {"latitude": w.latitude, "longitude": w.longitude}
+                for w in status.waypoints
+            ]
+        }
+    })
     return {"success": True}

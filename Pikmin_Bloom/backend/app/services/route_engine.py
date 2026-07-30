@@ -84,6 +84,12 @@ class RouteEngine:
         self._current_position: GPSCoordinate | None = None
         self._progress: float = 0.0
         self._device_id: str | None = None
+        self._waypoints: list[GPSCoordinate] = []
+        self._speed: float = 0.0
+        self._loop: bool = False
+        self._target_index: int = 0
+        self._on_position_update: Callable[[GPSCoordinate, float], Awaitable[None]] | None = None
+        self._on_route_error: Callable[[str], Awaitable[None]] | None = None
 
         self._task: asyncio.Task | None = None
         self._resume_event = asyncio.Event()
@@ -127,6 +133,12 @@ class RouteEngine:
         self._device_id = device_id
         self._progress = 0.0
         self._current_position = route_waypoints[0]
+        self._waypoints = route_waypoints
+        self._speed = speed
+        self._loop = loop
+        self._on_position_update = on_position_update
+        self._on_route_error = on_route_error
+        self._target_index = 0
         self._stop_event.clear()
         self._resume_event.set()  # 確保不在暫停狀態
 
@@ -163,6 +175,88 @@ class RouteEngine:
             self._reset_state(clear_position=False)
             logger.info("路徑已停止")
 
+    async def reverse_route(self) -> None:
+        """反轉路徑移動方向。"""
+        # 如果是 IDLE 狀態，直接反轉列表即可
+        if self._state == SimulationState.IDLE:
+            if self._waypoints:
+                self._waypoints = list(reversed(self._waypoints))
+            logger.info("路徑（空閒中）已反轉")
+            return
+
+        # 如果在 MOVING 或 PAUSED 狀態，進行動態無縫調頭
+        if self._state in (SimulationState.MOVING, SimulationState.PAUSED):
+            current_pos = self._current_position
+            device_id = self._device_id
+            speed = self._speed
+            loop = self._loop
+            on_position_update = self._on_position_update
+            on_route_error = self._on_route_error
+            prev_state = self._state
+
+            # 1. 停止目前的任務，但不清除當前座標
+            self._stop_event.set()
+            self._resume_event.set()
+            if self._task is not None and not self._task.done():
+                self._task.cancel()
+                try:
+                    await asyncio.wait_for(asyncio.shield(self._task), timeout=0.5)
+                except Exception:
+                    pass
+
+            # 2. 計算反轉後的新路徑
+            n = len(self._waypoints)
+            t = self._target_index
+            if t < 0 or t >= n:
+                t = 0
+
+            reversed_waypoints = list(reversed(self._waypoints))
+
+            if loop:
+                # 循環模式：我們需要構造一個無縫的循環，沒有任何跨起終點的跳躍。
+                # 我們原本在 W_{t-1} -> W_t 之間，正朝向 W_t。
+                # 反轉後，我們從 current_pos 出發，朝向 W_{t-1} 前進，然後依次經過 W_{t-2}, ..., W_0, W_{n-1}, ..., W_t。
+                # 這是將 reversed_waypoints 從 W_{t-1} 處（在 R 中的索引為 n - t）切片。
+                idx_in_r = n - t
+                if idx_in_r < 0 or idx_in_r >= n:
+                    idx_in_r = 0
+
+                first_pass_targets = reversed_waypoints[idx_in_r:] + reversed_waypoints[:idx_in_r]
+                new_waypoints = [current_pos] + first_pass_targets
+
+                # 未來循環使用的完整路徑：以第一趟的終點 W_t 作為起點
+                loop_start_idx = n - t - 1
+                if loop_start_idx < 0 or loop_start_idx >= n:
+                    loop_start_idx = 0
+                self._waypoints = reversed_waypoints[loop_start_idx:] + reversed_waypoints[:loop_start_idx]
+            else:
+                # 非循環模式：只需走到原起點
+                idx_in_r = n - t
+                if idx_in_r < 0 or idx_in_r >= n:
+                    idx_in_r = 0
+                new_waypoints = [current_pos] + reversed_waypoints[idx_in_r:]
+                self._waypoints = reversed_waypoints
+
+            # 3. 更新屬性並啟動新任務
+            self._device_id = device_id
+            self._current_position = current_pos
+            self._progress = 0.0
+            self._target_index = 0
+            self._stop_event.clear()
+
+            # 還原暫停狀態（若是反轉前是 PAUSED）
+            if prev_state == SimulationState.PAUSED:
+                self._state = SimulationState.PAUSED
+                self._resume_event.clear()
+            else:
+                self._state = SimulationState.MOVING
+                self._resume_event.set()
+
+            self._task = asyncio.create_task(
+                self._movement_loop(new_waypoints, speed, loop, on_position_update, on_route_error)
+            )
+            logger.info("路徑（執行中）已成功即時反轉調頭")
+
     def get_status(self) -> RouteStatus:
         """回傳目前路徑狀態。"""
         return RouteStatus(
@@ -170,6 +264,7 @@ class RouteEngine:
             current_position=self._current_position,
             progress=self._progress,
             device_id=self._device_id,
+            waypoints=self._waypoints,
         )
 
     def sync_manual_position(self, device_id: str, coordinate: GPSCoordinate | None) -> None:
@@ -187,7 +282,7 @@ class RouteEngine:
         waypoints: list[GPSCoordinate],
         speed: float,
         update_interval: float = 1.0,
-    ) -> list[tuple[GPSCoordinate, float]]:
+    ) -> list[tuple[GPSCoordinate, float, int]]:
         """
         將路徑點序列插值為細粒度座標序列。
 
@@ -197,9 +292,9 @@ class RouteEngine:
             update_interval: 每次更新的時間間隔（秒）
 
         Returns:
-            [(座標, 等待秒數), ...]
+            [(座標, 等待秒數, 朝向的節點索引), ...]
         """
-        result: list[tuple[GPSCoordinate, float]] = []
+        result: list[tuple[GPSCoordinate, float, int]] = []
 
         for i in range(len(waypoints) - 1):
             p1, p2 = waypoints[i], waypoints[i + 1]
@@ -214,10 +309,10 @@ class RouteEngine:
                     latitude=p1.latitude + t * (p2.latitude - p1.latitude),
                     longitude=p1.longitude + t * (p2.longitude - p1.longitude),
                 )
-                result.append((coord, wait_per_step))
+                result.append((coord, wait_per_step, i + 1))
 
         # 加入最後一個路徑點
-        result.append((waypoints[-1], 0.0))
+        result.append((waypoints[-1], 0.0, len(waypoints) - 1))
         return result
 
     # ── 內部方法 ──────────────────────────────────────────────────────────────
@@ -232,14 +327,29 @@ class RouteEngine:
     ) -> None:
         """路徑移動主迴圈，以 asyncio Task 執行。"""
         try:
-            interpolated = self.interpolate_route(waypoints, speed)
-            total_points = len(interpolated)
-
+            current_waypoints = waypoints
+            is_first_pass = (current_waypoints is not self._waypoints)
             while True:
-                for idx, (coord, wait_time) in enumerate(interpolated):
+                interpolated = self.interpolate_route(current_waypoints, speed)
+                total_points = len(interpolated)
+
+                if is_first_pass and len(current_waypoints) > 1 and self._waypoints:
+                    try:
+                        k_start = self._waypoints.index(current_waypoints[1])
+                    except ValueError:
+                        k_start = 0
+                else:
+                    k_start = None
+
+                for idx, (coord, wait_time, target_index) in enumerate(interpolated):
                     # 檢查停止訊號
                     if self._stop_event.is_set():
                         return
+                    
+                    if k_start is not None:
+                        self._target_index = (k_start + (target_index - 1)) % len(self._waypoints)
+                    else:
+                        self._target_index = target_index
 
                     # 等待 resume（暫停時阻塞）
                     await self._resume_event.wait()
@@ -301,9 +411,11 @@ class RouteEngine:
                         logger.warning("on_position_update 回呼失敗: %s", exc)
 
                 if loop and not self._stop_event.is_set():
-                    # 循環模式：重新開始
+                    # 循環模式：重新開始，後續循環使用完整的原始/反轉路徑
                     logger.info("路徑循環，重新開始")
                     self._progress = 0.0
+                    current_waypoints = self._waypoints
+                    is_first_pass = False
                     continue
                 else:
                     break
@@ -321,6 +433,8 @@ class RouteEngine:
         self._state = SimulationState.IDLE
         self._progress = 0.0
         self._device_id = None
+        self._waypoints = []
+        self._target_index = 0
         if clear_position:
             self._current_position = None
         self._stop_event.clear()

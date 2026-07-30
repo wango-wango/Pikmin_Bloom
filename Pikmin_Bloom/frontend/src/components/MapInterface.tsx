@@ -86,6 +86,8 @@ interface MapInterfaceProps {
   onWaypointSetAsEnd?: (index: number) => void
   canEditWaypoints?: boolean
   showGeneratedFlowerRoute?: boolean
+  zoom?: number
+  onZoomChange?: (zoom: number) => void
 }
 
 interface WaypointContextMenu {
@@ -121,6 +123,8 @@ export default function MapInterface({
   onWaypointSetAsEnd,
   canEditWaypoints = false,
   showGeneratedFlowerRoute = false,
+  zoom = 16,
+  onZoomChange,
 }: MapInterfaceProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -152,7 +156,8 @@ export default function MapInterface({
 
     const map = L.map(containerRef.current, {
       doubleClickZoom: false,
-    }).setView([23.5, 121.0], 8)
+      zoomControl: false,
+    }).setView([23.5, 121.0], zoom)
 
     const style = TILE_STYLES.find((s) => s.id === styleId) ?? TILE_STYLES[0]
     tileLayerRef.current = L.tileLayer(style.url, { attribution: style.attribution }).addTo(map)
@@ -160,7 +165,10 @@ export default function MapInterface({
     map.on('click', (e: L.LeafletMouseEvent) => {
       onMapClick({ latitude: e.latlng.lat, longitude: e.latlng.lng })
     })
-    map.on('moveend zoomend', () => emitViewport(map))
+    map.on('moveend zoomend', () => {
+      emitViewport(map)
+      onZoomChange?.(map.getZoom())
+    })
 
     mapRef.current = map
     emitViewport(map)
@@ -171,6 +179,14 @@ export default function MapInterface({
       tileLayerRef.current = null
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (map.getZoom() !== zoom) {
+      map.setZoom(zoom)
+    }
+  }, [zoom])
 
   useEffect(() => {
     const map = mapRef.current
@@ -542,6 +558,18 @@ export default function MapInterface({
         </div>
       )}
       <div className="map-controls-overlay">
+        <div className="map-style-switcher">
+          {TILE_STYLES.map((s) => (
+            <button
+              key={s.id}
+              className={`map-style-btn${styleId === s.id ? ' is-active' : ''}`}
+              onClick={() => setStyleId(s.id)}
+              aria-pressed={styleId === s.id}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
         <button
           type="button"
           className="map-locate-btn"
@@ -555,18 +583,6 @@ export default function MapInterface({
         >
           <LocateFixed size={20} strokeWidth={2.4} />
         </button>
-        <div className="map-style-switcher">
-          {TILE_STYLES.map((s) => (
-            <button
-              key={s.id}
-              className={`map-style-btn${styleId === s.id ? ' is-active' : ''}`}
-              onClick={() => setStyleId(s.id)}
-              aria-pressed={styleId === s.id}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
       </div>
     </div>
   )

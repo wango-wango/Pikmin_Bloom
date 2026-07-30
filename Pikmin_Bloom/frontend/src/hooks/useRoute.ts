@@ -29,6 +29,7 @@ export function useRoute(
   pauseRoute: () => Promise<void>
   resumeRoute: () => Promise<void>
   stopRoute: () => Promise<void>
+  reverseRoute: () => Promise<void>
   resetLocation: () => Promise<void>
   syncCurrentPosition: (coord: GPSCoordinate | null, nextState?: RouteStatus['state']) => void
 } {
@@ -43,6 +44,21 @@ export function useRoute(
       currentPositionRef.current = initialPosition
     }
   }, [initialPosition])
+
+  // 斷線接續與初次掛載同步
+  useEffect(() => {
+    let cancelled = false
+    apiClient.getStatus()
+      .then((status) => {
+        if (cancelled) return
+        setRouteStatus(status)
+        if ((status.state === 'moving' || status.state === 'paused') && status.waypoints && status.waypoints.length > 0) {
+          setWaypoints(status.waypoints)
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   const handleWsMessage = useCallback((update: StatusUpdate) => {
     if (update.type === 'position') {
@@ -66,6 +82,7 @@ export function useRoute(
         state: RouteStatus['state']
         current_position: GPSCoordinate | null
         progress: number
+        waypoints?: GPSCoordinate[]
       }>
       if (
         data.state === undefined &&
@@ -73,6 +90,10 @@ export function useRoute(
         data.progress === undefined
       ) {
         return
+      }
+
+      if (data.waypoints && data.waypoints.length > 0) {
+        setWaypoints(data.waypoints)
       }
 
       setRouteStatus((prev) => {
@@ -116,6 +137,9 @@ export function useRoute(
       try {
         const status = await apiClient.getStatus()
         if (cancelled) return
+        if ((status.state === 'moving' || status.state === 'paused') && status.waypoints && status.waypoints.length > 0) {
+          setWaypoints(status.waypoints)
+        }
         setRouteStatus((prev) => {
           const next: RouteStatus = {
             state: status.state ?? prev.state,
@@ -185,6 +209,11 @@ export function useRoute(
     setRouteStatus((prev) => ({ ...prev, state: 'idle', progress: 0 }))
   }, [])
 
+  const reverseRoute = useCallback(async () => {
+    await apiClient.reverseRoute()
+    setWaypoints((prev) => [...prev].reverse())
+  }, [])
+
   const resetLocation = useCallback(async () => {
     if (!deviceId) throw new Error('No device selected')
     await apiClient.resetLocation(deviceId)
@@ -215,6 +244,7 @@ export function useRoute(
     pauseRoute,
     resumeRoute,
     stopRoute,
+    reverseRoute,
     resetLocation,
     syncCurrentPosition,
   }

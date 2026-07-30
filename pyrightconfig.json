@@ -1,0 +1,7 @@
+{
+  "venvPath": "Pikmin_Bloom",
+  "venv": "venv",
+  "extraPaths": [
+    "Pikmin_Bloom/backend"
+  ]
+}
